@@ -1,6 +1,7 @@
 #include "core/entity.h"
 #include "core/log.h"
 #include <string.h>
+#include <float.h>
 
 void scene_init(Scene *scene)
 {
@@ -29,6 +30,8 @@ int scene_add_mesh(Scene *scene, Mesh *mesh, Vec3 position, float scale)
     ent->texture = NULL;
     ent->uv_scale = 1.0f;
     ent->active = true;
+    ent->pickable = true;
+    ent->hit_timer = 0;
 
     return idx;
 }
@@ -54,6 +57,8 @@ int scene_add_obj(Scene *scene, OBJMesh *obj, Vec3 position, float scale)
     ent->texture = NULL;
     ent->uv_scale = 1.0f;
     ent->active = true;
+    ent->pickable = true;
+    ent->hit_timer = 0;
 
     return idx;
 }
@@ -85,6 +90,9 @@ void scene_update(Scene *scene, float dt)
         ent->rotation.x += ent->rotation_speed.x * dt;
         ent->rotation.y += ent->rotation_speed.y * dt;
         ent->rotation.z += ent->rotation_speed.z * dt;
+
+        if (ent->hit_timer > 0)
+            ent->hit_timer -= dt;
     }
 }
 
@@ -414,4 +422,29 @@ AABB entity_get_world_aabb(const Entity *ent)
 
     Vec3 world_center = vec3_add(ent->position, center_local);
     return aabb_from_center_size(world_center, worst_half);
+}
+
+int scene_ray_pick(const Scene *scene, Ray ray, float *t_out)
+{
+    int closest = -1;
+    float closest_t = FLT_MAX;
+
+    for (int i = 0; i < scene->count; i++)
+    {
+        const Entity *ent = &scene->entities[i];
+        if (!ent->active || !ent->pickable)
+            continue;
+
+        AABB world_box = entity_get_world_aabb(ent);
+        float t;
+        if (ray_aabb_intersect(ray, world_box, &t) && t > 0 && t < closest_t)
+        {
+            closest_t = t;
+            closest = i;
+        }
+    }
+
+    if (t_out)
+        *t_out = closest_t;
+    return closest;
 }

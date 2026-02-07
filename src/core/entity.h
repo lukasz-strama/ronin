@@ -39,6 +39,8 @@ typedef struct
     Texture *texture;
     float uv_scale;
     bool active;
+    bool pickable;
+    float hit_timer;
 } Entity;
 
 typedef struct
@@ -57,5 +59,21 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir);
 void scene_render_wireframe(Scene *scene, Mat4 vp);
 
 AABB entity_get_world_aabb(const Entity *ent);
+int scene_ray_pick(const Scene *scene, Ray ray, float *t_out);
+
+// Projectile system
+#define MAX_PROJECTILES 32
+#define PROJECTILE_SPEED 20.0f
+#define PROJECTILE_LIFETIME 5.0f
+#define PROJECTILE_HALF_SIZE 0.15f
+#define HIT_FLASH_DURATION 0.5f
+
+typedef struct
+{
+    Vec3 position;
+    Vec3 direction;
+    float lifetime;
+    bool active;
+} Projectile;
 
 #endif

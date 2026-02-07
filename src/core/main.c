@@ -22,6 +22,11 @@
 #define COLOR_BLACK 0xFF000000
 #define COLOR_WHITE 0xFFFFFFFF
 #define COLOR_DEBUG_AABB 0xFF00FF00
+#define COLOR_HOVER_AABB 0xFF00FF00
+#define COLOR_SELECT_AABB 0xFF00CC00
+#define COLOR_HIT_FLASH 0xFFFF0000
+#define COLOR_PROJECTILE 0xFFFF4444
+#define COLOR_DEBUG_RAY 0xFFFFFF00
 
 #define PI 3.14159265358979323846f
 
@@ -106,6 +111,7 @@ int main(int argc, char *argv[])
     {
         int idx = scene_add_mesh(&scene, &floor_tiles[i], (Vec3){0, 0, 0}, 1.0f);
         scene_set_texture(&scene, idx, &floor_tex, 0.5f);
+        scene.entities[idx].pickable = false;
     }
 
     // Corner cubes (shared base mesh, positioned via entity transform)
@@ -201,19 +207,33 @@ int main(int argc, char *argv[])
     console_init(&console);
     console_log(&console, "Engine console ready. Type 'help'.");
 
-    CommandContext cmd_ctx;
     bool running = true;
+    int selected_entity = -1;
+
+    CommandContext cmd_ctx;
     cmd_ctx.scene = &scene;
     cmd_ctx.camera = &camera;
     cmd_ctx.teapot = &teapot;
     cmd_ctx.running = &running;
     cmd_ctx.console = &console;
     cmd_ctx.state = &game_state;
+    cmd_ctx.selected_entity = &selected_entity;
 
     Uint32 prev_time = SDL_GetTicks();
 
     bool key_w = false, key_s = false, key_a = false, key_d = false;
     bool debug_aabb = false;
+    bool shoot_requested = false;
+    bool select_requested = false;
+
+    int hovered_entity = -1;
+
+    Projectile projectiles[MAX_PROJECTILES] = {0};
+
+    // Debug ray visualization
+    Vec3 debug_ray_start = {0, 0, 0};
+    Vec3 debug_ray_end = {0, 0, 0};
+    float debug_ray_timer = 0;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
     LOG_INFO("Entering main loop (WASD + Mouse, ESC=Pause, ~=Console)");
@@ -353,6 +373,13 @@ int main(int argc, char *argv[])
                 float delta_pitch = -event.motion.yrel * CAMERA_SENSITIVITY;
                 camera_rotate(&camera, delta_yaw, delta_pitch);
             }
+            if (event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if (event.button.button == SDL_BUTTON_LEFT)
+                    shoot_requested = true;
+                else if (event.button.button == SDL_BUTTON_RIGHT)
+                    select_requested = true;
+            }
         }
 
         // --- Update (only while playing) ---
@@ -373,11 +400,122 @@ int main(int argc, char *argv[])
                 camera_try_move(&camera, move_delta);
 
             scene_update(&scene, dt);
+
+            // Projectile movement and collision
+            for (int i = 0; i < MAX_PROJECTILES; i++)
+            {
+                Projectile *p = &projectiles[i];
+                if (!p->active)
+                    continue;
+
+                p->lifetime -= dt;
+                if (p->lifetime <= 0)
+                {
+                    p->active = false;
+                    continue;
+                }
+
+                p->position = vec3_add(p->position,
+                                       vec3_mul(p->direction, PROJECTILE_SPEED * dt));
+
+                // Check collision against pickable entities
+                AABB pbox = aabb_from_center_size(p->position,
+                                                  (Vec3){PROJECTILE_HALF_SIZE, PROJECTILE_HALF_SIZE, PROJECTILE_HALF_SIZE});
+
+                for (int j = 0; j < scene.count; j++)
+                {
+                    Entity *ent = &scene.entities[j];
+                    if (!ent->active || !ent->pickable)
+                        continue;
+
+                    AABB ent_box = entity_get_world_aabb(ent);
+                    if (aabb_overlap(pbox, ent_box))
+                    {
+                        p->active = false;
+                        ent->hit_timer = HIT_FLASH_DURATION;
+                        LOG_INFO("Projectile hit entity %d!", j);
+                        console_log(&console, "Hit entity %d!", j);
+                        break;
+                    }
+                }
+            }
+
+            if (debug_ray_timer > 0)
+                debug_ray_timer -= dt;
         }
 
         // --- Render (always) ---
         Mat4 view = camera_get_view_matrix(&camera);
         Mat4 vp = mat4_mul(proj, view);
+
+        // Screen-to-world ray from crosshair (center of screen)
+        Mat4 inv_proj = mat4_inverse(proj);
+        Mat4 inv_view = mat4_inverse(view);
+        Ray center_ray = ray_from_screen(
+            RENDER_WIDTH / 2, RENDER_HEIGHT / 2,
+            RENDER_WIDTH, RENDER_HEIGHT,
+            inv_proj, inv_view, camera.position);
+
+        // Hover detection and queued actions (only while playing)
+        if (game_state == GAME_STATE_PLAYING)
+        {
+            float t;
+            hovered_entity = scene_ray_pick(&scene, center_ray, &t);
+
+            if (shoot_requested)
+            {
+                // Find a free projectile slot
+                for (int i = 0; i < MAX_PROJECTILES; i++)
+                {
+                    if (!projectiles[i].active)
+                    {
+                        projectiles[i].position = vec3_add(camera.position,
+                                                           vec3_mul(center_ray.direction, 0.5f));
+                        projectiles[i].direction = center_ray.direction;
+                        projectiles[i].lifetime = PROJECTILE_LIFETIME;
+                        projectiles[i].active = true;
+                        LOG_INFO("Projectile fired");
+                        break;
+                    }
+                }
+
+                if (console.debug_rays)
+                {
+                    debug_ray_start = camera.position;
+                    debug_ray_end = vec3_add(camera.position,
+                                             vec3_mul(center_ray.direction, 50.0f));
+                    debug_ray_timer = 3.0f;
+                }
+                shoot_requested = false;
+            }
+
+            if (select_requested)
+            {
+                if (hovered_entity >= 0)
+                {
+                    selected_entity = hovered_entity;
+                    LOG_INFO("Selected entity %d", hovered_entity);
+                    console_log(&console, "Selected entity %d", hovered_entity);
+                }
+                else
+                {
+                    selected_entity = -1;
+                }
+
+                if (console.debug_rays)
+                {
+                    debug_ray_start = camera.position;
+                    debug_ray_end = vec3_add(camera.position,
+                                             vec3_mul(center_ray.direction, 50.0f));
+                    debug_ray_timer = 3.0f;
+                }
+                select_requested = false;
+            }
+        }
+        else
+        {
+            hovered_entity = -1;
+        }
 
         framebuffer_clear(COLOR_BLACK);
         render_clear_zbuffer();
@@ -393,6 +531,58 @@ int main(int argc, char *argv[])
             {
                 render_draw_aabb(camera.colliders[i], vp, COLOR_DEBUG_AABB);
             }
+        }
+
+        if (hovered_entity >= 0)
+        {
+            AABB box = entity_get_world_aabb(&scene.entities[hovered_entity]);
+            render_draw_aabb(box, vp, COLOR_HOVER_AABB);
+        }
+
+        // Selection highlight (darker green, persistent until deselected)
+        if (selected_entity >= 0 && selected_entity < scene.count &&
+            selected_entity != hovered_entity)
+        {
+            AABB box = entity_get_world_aabb(&scene.entities[selected_entity]);
+            render_draw_aabb(box, vp, COLOR_SELECT_AABB);
+        }
+
+        for (int i = 0; i < scene.count; i++)
+        {
+            if (scene.entities[i].hit_timer > 0)
+            {
+                AABB box = entity_get_world_aabb(&scene.entities[i]);
+                render_draw_aabb(box, vp, COLOR_HIT_FLASH);
+            }
+        }
+
+        for (int i = 0; i < MAX_PROJECTILES; i++)
+        {
+            if (!projectiles[i].active)
+                continue;
+
+            AABB pbox = aabb_from_center_size(projectiles[i].position,
+                                              (Vec3){PROJECTILE_HALF_SIZE, PROJECTILE_HALF_SIZE, PROJECTILE_HALF_SIZE});
+            render_draw_aabb(pbox, vp, COLOR_PROJECTILE);
+
+            // Draw a bright center dot for visibility at distance
+            Vec4 cc = mat4_mul_vec4(vp,
+                                    vec4_from_vec3(projectiles[i].position, 1.0f));
+            if (cc.w > 0.1f)
+            {
+                ProjectedVertex pv = render_project_vertex(cc);
+                int px = (int)pv.screen.x;
+                int py = (int)pv.screen.y;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        render_set_pixel(px + dx, py + dy, 0xFFFF0000);
+            }
+        }
+
+        // Debug ray visualization
+        if (console.debug_rays && debug_ray_timer > 0)
+        {
+            render_draw_3d_line(debug_ray_start, debug_ray_end, vp, COLOR_DEBUG_RAY);
         }
 
         // --- HUD overlays ---

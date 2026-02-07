@@ -294,3 +294,160 @@ bool aabb_overlap(AABB a, AABB b)
         return false;
     return true;
 }
+
+// 4x4 matrix inverse via cofactor expansion
+Mat4 mat4_inverse(Mat4 mat)
+{
+    float m[16];
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+            m[r * 4 + c] = mat.m[r][c];
+
+    float inv[16];
+
+    inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+    inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+    inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+    inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+
+    float det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+    if (fabsf(det) < 1e-8f)
+        return mat4_identity();
+
+    inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+    inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+    inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+    inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+
+    inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+    inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+    inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+    inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+
+    inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+    inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+    inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+    inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+
+    float inv_det = 1.0f / det;
+    Mat4 result;
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+            result.m[r][c] = inv[r * 4 + c] * inv_det;
+
+    return result;
+}
+
+Ray ray_from_screen(int screen_x, int screen_y, int screen_w, int screen_h,
+                    Mat4 inv_proj, Mat4 inv_view, Vec3 cam_pos)
+{
+    // Screen to NDC (matching render_project_vertex inverse)
+    float ndc_x = (2.0f * screen_x / screen_w) - 1.0f;
+    float ndc_y = 1.0f - (2.0f * screen_y / screen_h);
+
+    // Unproject near and far points through inverse projection
+    Vec4 clip_near = {ndc_x, ndc_y, 0.0f, 1.0f};
+    Vec4 clip_far = {ndc_x, ndc_y, 1.0f, 1.0f};
+
+    Vec4 view_near = mat4_mul_vec4(inv_proj, clip_near);
+    Vec4 view_far = mat4_mul_vec4(inv_proj, clip_far);
+
+    // Perspective divide to recover view-space positions
+    Vec3 vn = vec3_mul(vec3_from_vec4(view_near), 1.0f / view_near.w);
+    Vec3 vf = vec3_mul(vec3_from_vec4(view_far), 1.0f / view_far.w);
+
+    // View space to world space
+    Vec3 wn = vec3_from_vec4(mat4_mul_vec4(inv_view, vec4_from_vec3(vn, 1.0f)));
+    Vec3 wf = vec3_from_vec4(mat4_mul_vec4(inv_view, vec4_from_vec3(vf, 1.0f)));
+
+    Ray ray;
+    ray.origin = cam_pos;
+    ray.direction = vec3_normalize(vec3_sub(wf, wn));
+    return ray;
+}
+
+// Slab method for ray-AABB intersection
+bool ray_aabb_intersect(Ray ray, AABB box, float *t_out)
+{
+    float tmin = -FLT_MAX;
+    float tmax = FLT_MAX;
+
+    // X slab
+    if (fabsf(ray.direction.x) > 1e-8f)
+    {
+        float t1 = (box.min.x - ray.origin.x) / ray.direction.x;
+        float t2 = (box.max.x - ray.origin.x) / ray.direction.x;
+        if (t1 > t2)
+        {
+            float tmp = t1;
+            t1 = t2;
+            t2 = tmp;
+        }
+        if (t1 > tmin)
+            tmin = t1;
+        if (t2 < tmax)
+            tmax = t2;
+        if (tmin > tmax)
+            return false;
+    }
+    else
+    {
+        if (ray.origin.x < box.min.x || ray.origin.x > box.max.x)
+            return false;
+    }
+
+    // Y slab
+    if (fabsf(ray.direction.y) > 1e-8f)
+    {
+        float t1 = (box.min.y - ray.origin.y) / ray.direction.y;
+        float t2 = (box.max.y - ray.origin.y) / ray.direction.y;
+        if (t1 > t2)
+        {
+            float tmp = t1;
+            t1 = t2;
+            t2 = tmp;
+        }
+        if (t1 > tmin)
+            tmin = t1;
+        if (t2 < tmax)
+            tmax = t2;
+        if (tmin > tmax)
+            return false;
+    }
+    else
+    {
+        if (ray.origin.y < box.min.y || ray.origin.y > box.max.y)
+            return false;
+    }
+
+    // Z slab
+    if (fabsf(ray.direction.z) > 1e-8f)
+    {
+        float t1 = (box.min.z - ray.origin.z) / ray.direction.z;
+        float t2 = (box.max.z - ray.origin.z) / ray.direction.z;
+        if (t1 > t2)
+        {
+            float tmp = t1;
+            t1 = t2;
+            t2 = tmp;
+        }
+        if (t1 > tmin)
+            tmin = t1;
+        if (t2 < tmax)
+            tmax = t2;
+        if (tmin > tmax)
+            return false;
+    }
+    else
+    {
+        if (ray.origin.z < box.min.z || ray.origin.z > box.max.z)
+            return false;
+    }
+
+    if (tmax < 0)
+        return false;
+
+    if (t_out)
+        *t_out = (tmin >= 0) ? tmin : tmax;
+    return true;
+}

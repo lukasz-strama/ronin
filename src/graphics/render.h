@@ -38,6 +38,9 @@ void render_fill_triangle_textured(
 // Debug: draw wireframe AABB projected through view-projection matrix
 void render_draw_aabb(AABB box, Mat4 vp, uint32_t color);
 
+// Draw a 3D line segment projected through view-projection matrix
+void render_draw_3d_line(Vec3 start, Vec3 end, Mat4 vp, uint32_t color);
+
 // Shared vertex projection (clip-space -> screen-space)
 typedef struct
 {

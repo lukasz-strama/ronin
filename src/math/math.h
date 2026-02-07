@@ -67,4 +67,16 @@ AABB aabb_transform(AABB box, Mat4 m);
 AABB aabb_from_center_size(Vec3 center, Vec3 half_extents);
 bool aabb_overlap(AABB a, AABB b);
 
+// Ray casting
+typedef struct
+{
+    Vec3 origin;
+    Vec3 direction;
+} Ray;
+
+Mat4 mat4_inverse(Mat4 m);
+Ray ray_from_screen(int screen_x, int screen_y, int screen_w, int screen_h,
+                    Mat4 inv_proj, Mat4 inv_view, Vec3 cam_pos);
+bool ray_aabb_intersect(Ray ray, AABB box, float *t_out);
+
 #endif

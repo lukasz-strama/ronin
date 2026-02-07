@@ -29,6 +29,7 @@ typedef struct
     int log_count;
 
     bool wireframe;
+    bool debug_rays;
 } Console;
 
 void console_init(Console *con);
@@ -47,6 +48,7 @@ typedef struct
     bool *running;
     Console *console;
     GameState *state;
+    int *selected_entity;
 } CommandContext;
 
 void console_execute(Console *con, CommandContext *ctx);

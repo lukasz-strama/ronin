@@ -436,3 +436,21 @@ void render_draw_aabb(AABB box, Mat4 vp, uint32_t color)
         render_draw_line(x0, y0, x1, y1, color);
     }
 }
+
+void render_draw_3d_line(Vec3 start, Vec3 end, Mat4 vp, uint32_t color)
+{
+    Vec4 a = mat4_mul_vec4(vp, vec4_from_vec3(start, 1.0f));
+    Vec4 b = mat4_mul_vec4(vp, vec4_from_vec3(end, 1.0f));
+
+    if (!clip_line_near(&a, &b))
+        return;
+
+    float inv_wa = 1.0f / a.w;
+    float inv_wb = 1.0f / b.w;
+    int x0 = (int)((a.x * inv_wa + 1.0f) * 0.5f * RENDER_WIDTH);
+    int y0 = (int)((1.0f - a.y * inv_wa) * 0.5f * RENDER_HEIGHT);
+    int x1 = (int)((b.x * inv_wb + 1.0f) * 0.5f * RENDER_WIDTH);
+    int y1 = (int)((1.0f - b.y * inv_wb) * 0.5f * RENDER_HEIGHT);
+
+    render_draw_line(x0, y0, x1, y1, color);
+}

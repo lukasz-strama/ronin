@@ -22,6 +22,7 @@ void console_init(Console *con)
 {
     memset(con, 0, sizeof(Console));
     con->wireframe = false;
+    con->debug_rays = false;
     LOG_INFO("Console initialized");
 }
 
@@ -171,6 +172,8 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, " set speed <N>    - rotation spd");
         console_log(con, " toggle wireframe - wireframe");
         console_log(con, " toggle aabb      - bounding box");
+        console_log(con, " toggle rays      - ray debug vis");
+        console_log(con, " deselect         - clear selection");
         console_log(con, " resume           - back to game");
         console_log(con, " quit             - exit engine");
     }
@@ -242,6 +245,20 @@ void console_execute(Console *con, CommandContext *ctx)
         // Signal handled via return; main reads console.wireframe-like flag
         // Reuse a simple approach: log and let main handle via a flag
         console_log(con, "Use 'B' key to toggle AABB");
+    }
+    // --- toggle rays ---
+    else if (strcmp(tokens[0], "toggle") == 0 && ntokens >= 2 &&
+             strcmp(tokens[1], "rays") == 0)
+    {
+        con->debug_rays = !con->debug_rays;
+        console_log(con, "Ray debug: %s", con->debug_rays ? "ON" : "OFF");
+    }
+    // --- deselect ---
+    else if (strcmp(tokens[0], "deselect") == 0)
+    {
+        if (ctx->selected_entity)
+            *ctx->selected_entity = -1;
+        console_log(con, "Selection cleared");
     }
     else
     {
