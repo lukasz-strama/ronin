@@ -8,6 +8,7 @@
 #include "math/math.h"
 #include "graphics/mesh.h"
 #include "graphics/render.h"
+#include "graphics/clip.h"
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
@@ -160,7 +161,6 @@ int main(int argc, char *argv[]) {
             Vec3 v1 = cube.vertices[face.b];
             Vec3 v2 = cube.vertices[face.c];
 
-            // Transform to world space for normal calculation
             Vec4 w0 = mat4_mul_vec4(model, vec4_from_vec3(v0, 1.0f));
             Vec4 w1 = mat4_mul_vec4(model, vec4_from_vec3(v1, 1.0f));
             Vec4 w2 = mat4_mul_vec4(model, vec4_from_vec3(v2, 1.0f));
@@ -169,7 +169,6 @@ int main(int argc, char *argv[]) {
             Vec3 world_v1 = vec3_from_vec4(w1);
             Vec3 world_v2 = vec3_from_vec4(w2);
 
-            // Calculate face normal
             Vec3 edge1  = vec3_sub(world_v1, world_v0);
             Vec3 edge2  = vec3_sub(world_v2, world_v0);
             Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
@@ -179,29 +178,37 @@ int main(int argc, char *argv[]) {
             Vec3 view_dir = vec3_normalize(vec3_sub(camera_pos, face_center));
             if (vec3_dot(normal, view_dir) < 0) continue;
 
+            // Flat shading intensity (compute before clipping)
+            float intensity = vec3_dot(normal, light_dir);
+            if (intensity < 0) intensity = 0;
+            intensity = 0.2f + intensity * 0.8f;
+            uint32_t shaded_color = shade_color(face.color, intensity);
+
             Vec4 t0 = mat4_mul_vec4(mvp, vec4_from_vec3(v0, 1.0f));
             Vec4 t1 = mat4_mul_vec4(mvp, vec4_from_vec3(v1, 1.0f));
             Vec4 t2 = mat4_mul_vec4(mvp, vec4_from_vec3(v2, 1.0f));
 
-            if (t0.w <= 0 || t1.w <= 0 || t2.w <= 0) continue;
+            ClipPolygon poly;
+            poly.count = 3;
+            poly.vertices[0] = (ClipVertex){ t0, shaded_color };
+            poly.vertices[1] = (ClipVertex){ t1, shaded_color };
+            poly.vertices[2] = (ClipVertex){ t2, shaded_color };
 
-            ProjectedVertex p0 = project_vertex(t0);
-            ProjectedVertex p1 = project_vertex(t1);
-            ProjectedVertex p2 = project_vertex(t2);
+            if (clip_polygon_against_frustum(&poly) < 3) continue;
 
-            // Flat shading intensity
-            float intensity = vec3_dot(normal, light_dir);
-            if (intensity < 0) intensity = 0;
-            intensity = 0.2f + intensity * 0.8f;
+            ProjectedVertex pv0 = project_vertex(poly.vertices[0].position);
 
-            uint32_t shaded_color = shade_color(face.color, intensity);
+            for (int j = 1; j < poly.count - 1; j++) {
+                ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
+                ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
 
-            render_fill_triangle_z(
-                (int)p0.screen.x, (int)p0.screen.y, p0.z,
-                (int)p1.screen.x, (int)p1.screen.y, p1.z,
-                (int)p2.screen.x, (int)p2.screen.y, p2.z,
-                shaded_color
-            );
+                render_fill_triangle_z(
+                    (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
+                    (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
+                    (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
+                    poly.vertices[0].color
+                );
+            }
         }
 
         SDL_UpdateTexture(texture, NULL, framebuffer, RENDER_WIDTH * sizeof(uint32_t));
