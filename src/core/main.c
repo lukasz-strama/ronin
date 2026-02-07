@@ -9,6 +9,7 @@
 #include "graphics/mesh.h"
 #include "graphics/render.h"
 #include "graphics/clip.h"
+#include "core/camera.h"
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
@@ -108,23 +109,37 @@ int main(int argc, char *argv[]) {
     render_set_framebuffer(framebuffer);
     render_set_zbuffer(zbuffer);
 
-    Mesh cube = mesh_cube();
-    LOG_INFO("Loaded cube mesh: %d vertices, %d faces", cube.vertex_count, cube.face_count);
+    // Generate floor tiles
+    Mesh floor_tiles[MAX_FLOOR_TILES];
+    int floor_tile_count = mesh_generate_floor(floor_tiles);
+
+    // Create 4 cubes at corners (with margin from edge)
+    float margin = 2.0f;
+    float half_floor = FLOOR_TOTAL_SIZE / 2.0f - margin;
+    float cube_y = 1.1f;  // Cubes sit slightly above floor
+
+    Mesh corner_cubes[4];
+    corner_cubes[0] = mesh_cube_at((Vec3){ -half_floor, cube_y, -half_floor }, 1.0f);
+    corner_cubes[1] = mesh_cube_at((Vec3){  half_floor, cube_y, -half_floor }, 1.0f);
+    corner_cubes[2] = mesh_cube_at((Vec3){ -half_floor, cube_y,  half_floor }, 1.0f);
+    corner_cubes[3] = mesh_cube_at((Vec3){  half_floor, cube_y,  half_floor }, 1.0f);
 
     float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
     Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 100.0f);
 
-    Vec3 camera_pos    = (Vec3){ 0, 0, -5 };
-    Vec3 camera_target = (Vec3){ 0, 0, 0 };
-    Vec3 camera_up     = (Vec3){ 0, 1, 0 };
-    Mat4 view = mat4_look_at(camera_pos, camera_target, camera_up);
+    // Camera starts at center of floor, eye-level above ground
+    Camera camera;
+    camera_init(&camera, (Vec3){ 0, 2, 0 }, 0.0f, 0.0f);
 
-    Vec3 light_dir = vec3_normalize((Vec3){ 0, 0, -1 });
+    Vec3 light_dir = vec3_normalize((Vec3){ 0.5f, 1.0f, -0.5f });
 
-    float rotation = 0.0f;
     Uint32 prev_time = SDL_GetTicks();
 
-    LOG_INFO("Entering main loop");
+    // Input state
+    bool key_w = false, key_s = false, key_a = false, key_d = false;
+
+    SDL_SetRelativeMouseMode(SDL_TRUE);
+    LOG_INFO("Entering main loop (WASD + Mouse to move, ESC to quit)");
 
     bool running = true;
     while (running) {
@@ -137,77 +152,144 @@ int main(int argc, char *argv[]) {
             if (event.type == SDL_QUIT) {
                 running = false;
             }
-            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
-                running = false;
+            if (event.type == SDL_KEYDOWN) {
+                switch (event.key.keysym.sym) {
+                    case SDLK_ESCAPE: running = false; break;
+                    case SDLK_w: key_w = true; break;
+                    case SDLK_s: key_s = true; break;
+                    case SDLK_a: key_a = true; break;
+                    case SDLK_d: key_d = true; break;
+                }
+            }
+            if (event.type == SDL_KEYUP) {
+                switch (event.key.keysym.sym) {
+                    case SDLK_w: key_w = false; break;
+                    case SDLK_s: key_s = false; break;
+                    case SDLK_a: key_a = false; break;
+                    case SDLK_d: key_d = false; break;
+                }
+            }
+            if (event.type == SDL_MOUSEMOTION) {
+                float delta_yaw   =  event.motion.xrel * CAMERA_SENSITIVITY;
+                float delta_pitch = -event.motion.yrel * CAMERA_SENSITIVITY;
+                camera_rotate(&camera, delta_yaw, delta_pitch);
             }
         }
 
-        rotation += dt;
+        float move_speed = CAMERA_SPEED * dt;
+        if (key_w) camera_move_forward(&camera, move_speed);
+        if (key_s) camera_move_backward(&camera, move_speed);
+        if (key_a) camera_strafe_left(&camera, move_speed);
+        if (key_d) camera_strafe_right(&camera, move_speed);
 
-        Mat4 rot_y = mat4_rotate_y(rotation);
-        Mat4 rot_x = mat4_rotate_x(rotation * 0.5f);
-        Mat4 model = mat4_mul(rot_y, rot_x);
-
-        Mat4 mv  = mat4_mul(view, model);
-        Mat4 mvp = mat4_mul(proj, mv);
+        Mat4 view = camera_get_view_matrix(&camera);
+        Mat4 vp = mat4_mul(proj, view);
 
         framebuffer_clear(COLOR_BLACK);
         render_clear_zbuffer();
 
-        for (int i = 0; i < cube.face_count; i++) {
-            Face face = cube.faces[i];
+        // Render floor tiles (static, model = identity)
+        for (int t = 0; t < floor_tile_count; t++) {
+            Mesh *tile = &floor_tiles[t];
+            for (int i = 0; i < tile->face_count; i++) {
+                Face face = tile->faces[i];
 
-            Vec3 v0 = cube.vertices[face.a];
-            Vec3 v1 = cube.vertices[face.b];
-            Vec3 v2 = cube.vertices[face.c];
+                Vec3 v0 = tile->vertices[face.a];
+                Vec3 v1 = tile->vertices[face.b];
+                Vec3 v2 = tile->vertices[face.c];
 
-            Vec4 w0 = mat4_mul_vec4(model, vec4_from_vec3(v0, 1.0f));
-            Vec4 w1 = mat4_mul_vec4(model, vec4_from_vec3(v1, 1.0f));
-            Vec4 w2 = mat4_mul_vec4(model, vec4_from_vec3(v2, 1.0f));
+                // Floor is static - world coords = local coords
+                Vec3 edge1  = vec3_sub(v1, v0);
+                Vec3 edge2  = vec3_sub(v2, v0);
+                Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
 
-            Vec3 world_v0 = vec3_from_vec4(w0);
-            Vec3 world_v1 = vec3_from_vec4(w1);
-            Vec3 world_v2 = vec3_from_vec4(w2);
+                // Backface culling
+                Vec3 face_center = vec3_mul(vec3_add(vec3_add(v0, v1), v2), 1.0f / 3.0f);
+                Vec3 view_dir = vec3_normalize(vec3_sub(camera.position, face_center));
+                if (vec3_dot(normal, view_dir) < 0) continue;
 
-            Vec3 edge1  = vec3_sub(world_v1, world_v0);
-            Vec3 edge2  = vec3_sub(world_v2, world_v0);
-            Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
+                // Flat shading
+                float intensity = vec3_dot(normal, light_dir);
+                if (intensity < 0) intensity = 0;
+                intensity = 0.3f + intensity * 0.7f;
+                uint32_t shaded_color = shade_color(face.color, intensity);
 
-            // Backface culling
-            Vec3 face_center = vec3_mul(vec3_add(vec3_add(world_v0, world_v1), world_v2), 1.0f / 3.0f);
-            Vec3 view_dir = vec3_normalize(vec3_sub(camera_pos, face_center));
-            if (vec3_dot(normal, view_dir) < 0) continue;
+                Vec4 t0 = mat4_mul_vec4(vp, vec4_from_vec3(v0, 1.0f));
+                Vec4 t1 = mat4_mul_vec4(vp, vec4_from_vec3(v1, 1.0f));
+                Vec4 t2 = mat4_mul_vec4(vp, vec4_from_vec3(v2, 1.0f));
 
-            // Flat shading intensity (compute before clipping)
-            float intensity = vec3_dot(normal, light_dir);
-            if (intensity < 0) intensity = 0;
-            intensity = 0.2f + intensity * 0.8f;
-            uint32_t shaded_color = shade_color(face.color, intensity);
+                ClipPolygon poly;
+                poly.count = 3;
+                poly.vertices[0] = (ClipVertex){ t0, shaded_color };
+                poly.vertices[1] = (ClipVertex){ t1, shaded_color };
+                poly.vertices[2] = (ClipVertex){ t2, shaded_color };
 
-            Vec4 t0 = mat4_mul_vec4(mvp, vec4_from_vec3(v0, 1.0f));
-            Vec4 t1 = mat4_mul_vec4(mvp, vec4_from_vec3(v1, 1.0f));
-            Vec4 t2 = mat4_mul_vec4(mvp, vec4_from_vec3(v2, 1.0f));
+                if (clip_polygon_against_frustum(&poly) < 3) continue;
 
-            ClipPolygon poly;
-            poly.count = 3;
-            poly.vertices[0] = (ClipVertex){ t0, shaded_color };
-            poly.vertices[1] = (ClipVertex){ t1, shaded_color };
-            poly.vertices[2] = (ClipVertex){ t2, shaded_color };
+                ProjectedVertex pv0 = project_vertex(poly.vertices[0].position);
+                for (int j = 1; j < poly.count - 1; j++) {
+                    ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
+                    ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
 
-            if (clip_polygon_against_frustum(&poly) < 3) continue;
+                    render_fill_triangle_z(
+                        (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
+                        (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
+                        (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
+                        poly.vertices[0].color
+                    );
+                }
+            }
+        }
 
-            ProjectedVertex pv0 = project_vertex(poly.vertices[0].position);
+        // Render corner cubes (static, vertices already in world space)
+        for (int c = 0; c < 4; c++) {
+            Mesh *cube = &corner_cubes[c];
+            for (int i = 0; i < cube->face_count; i++) {
+                Face face = cube->faces[i];
 
-            for (int j = 1; j < poly.count - 1; j++) {
-                ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
-                ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
+                Vec3 v0 = cube->vertices[face.a];
+                Vec3 v1 = cube->vertices[face.b];
+                Vec3 v2 = cube->vertices[face.c];
 
-                render_fill_triangle_z(
-                    (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
-                    (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
-                    (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
-                    poly.vertices[0].color
-                );
+                Vec3 edge1  = vec3_sub(v1, v0);
+                Vec3 edge2  = vec3_sub(v2, v0);
+                Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
+
+                // Backface culling
+                Vec3 face_center = vec3_mul(vec3_add(vec3_add(v0, v1), v2), 1.0f / 3.0f);
+                Vec3 view_dir = vec3_normalize(vec3_sub(camera.position, face_center));
+                if (vec3_dot(normal, view_dir) < 0) continue;
+
+                // Flat shading
+                float intensity = vec3_dot(normal, light_dir);
+                if (intensity < 0) intensity = 0;
+                intensity = 0.2f + intensity * 0.8f;
+                uint32_t shaded_color = shade_color(face.color, intensity);
+
+                Vec4 t0 = mat4_mul_vec4(vp, vec4_from_vec3(v0, 1.0f));
+                Vec4 t1 = mat4_mul_vec4(vp, vec4_from_vec3(v1, 1.0f));
+                Vec4 t2 = mat4_mul_vec4(vp, vec4_from_vec3(v2, 1.0f));
+
+                ClipPolygon poly;
+                poly.count = 3;
+                poly.vertices[0] = (ClipVertex){ t0, shaded_color };
+                poly.vertices[1] = (ClipVertex){ t1, shaded_color };
+                poly.vertices[2] = (ClipVertex){ t2, shaded_color };
+
+                if (clip_polygon_against_frustum(&poly) < 3) continue;
+
+                ProjectedVertex pv0 = project_vertex(poly.vertices[0].position);
+                for (int j = 1; j < poly.count - 1; j++) {
+                    ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
+                    ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
+
+                    render_fill_triangle_z(
+                        (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
+                        (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
+                        (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
+                        poly.vertices[0].color
+                    );
+                }
             }
         }
 

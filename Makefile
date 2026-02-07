@@ -11,6 +11,7 @@ TARGET  = engine
 
 SRC     = src/core/main.c \
           src/core/log.c \
+          src/core/camera.c \
           src/math/math.c \
           src/graphics/render.c \
           src/graphics/mesh.c \

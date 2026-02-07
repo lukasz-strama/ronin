@@ -1,4 +1,5 @@
 #include "graphics/render.h"
+#include "core/log.h"
 #include <stdlib.h>
 #include <float.h>
 
@@ -7,10 +8,12 @@ static float    *g_zbuffer     = NULL;
 
 void render_set_framebuffer(uint32_t *buffer) {
     g_framebuffer = buffer;
+    LOG_INFO("Framebuffer initialized (%dx%d)", RENDER_WIDTH, RENDER_HEIGHT);
 }
 
 void render_set_zbuffer(float *buffer) {
     g_zbuffer = buffer;
+    LOG_INFO("Z-buffer initialized");
 }
 
 void render_clear_zbuffer(void) {
