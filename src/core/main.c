@@ -13,13 +13,14 @@
 #include "graphics/hud.h"
 #include "core/camera.h"
 #include "core/obj_loader.h"
+#include "core/entity.h"
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
 
 #define COLOR_BLACK 0xFF000000
 #define COLOR_WHITE 0xFFFFFFFF
-#define COLOR_DEBUG_AABB 0xFF00FF00 // Green wireframe
+#define COLOR_DEBUG_AABB 0xFF00FF00
 
 #define PI 3.14159265358979323846f
 
@@ -32,39 +33,6 @@ static void framebuffer_clear(uint32_t color)
     {
         framebuffer[i] = color;
     }
-}
-
-static uint32_t shade_color(uint32_t base_color, float intensity)
-{
-    if (intensity < 0.1f)
-        intensity = 0.1f;
-    if (intensity > 1.0f)
-        intensity = 1.0f;
-
-    uint8_t r = (uint8_t)(((base_color >> 16) & 0xFF) * intensity);
-    uint8_t g = (uint8_t)(((base_color >> 8) & 0xFF) * intensity);
-    uint8_t b = (uint8_t)((base_color & 0xFF) * intensity);
-
-    return 0xFF000000 | (r << 16) | (g << 8) | b;
-}
-
-typedef struct
-{
-    Vec2 screen;
-    float z;
-} ProjectedVertex;
-
-static ProjectedVertex project_vertex(Vec4 v)
-{
-    ProjectedVertex pv;
-    float x = v.x / v.w;
-    float y = v.y / v.w;
-    float z = v.z / v.w;
-
-    pv.screen.x = (x + 1.0f) * 0.5f * RENDER_WIDTH;
-    pv.screen.y = (1.0f - y) * 0.5f * RENDER_HEIGHT;
-    pv.z = z;
-    return pv;
 }
 
 int main(int argc, char *argv[])
@@ -123,60 +91,47 @@ int main(int argc, char *argv[])
     render_set_framebuffer(framebuffer);
     render_set_zbuffer(zbuffer);
 
+    Scene scene;
+    scene_init(&scene);
+
+    // Floor tiles (textured, static - vertices in world space)
     Mesh floor_tiles[MAX_FLOOR_TILES];
     int floor_tile_count = mesh_generate_floor(floor_tiles);
+
+    Texture floor_tex;
+    texture_create_checker(&floor_tex, 64, 8, 0xFFFF69B4, 0xFF808080);
+
+    for (int i = 0; i < floor_tile_count; i++)
+    {
+        int idx = scene_add_mesh(&scene, &floor_tiles[i], (Vec3){0, 0, 0}, 1.0f);
+        scene_set_texture(&scene, idx, &floor_tex, 0.5f);
+    }
+
+    // Corner cubes (shared base mesh, positioned via entity transform)
+    Mesh cube_mesh = mesh_cube();
+    cube_mesh.bounds = aabb_from_vertices(cube_mesh.vertices, cube_mesh.vertex_count);
 
     float margin = 2.0f;
     float half_floor = FLOOR_TOTAL_SIZE / 2.0f - margin;
     float cube_y = 1.1f;
 
-    Mesh corner_cubes[4];
-    corner_cubes[0] = mesh_cube_at((Vec3){-half_floor, cube_y, -half_floor}, 1.0f);
-    corner_cubes[1] = mesh_cube_at((Vec3){half_floor, cube_y, -half_floor}, 1.0f);
-    corner_cubes[2] = mesh_cube_at((Vec3){-half_floor, cube_y, half_floor}, 1.0f);
-    corner_cubes[3] = mesh_cube_at((Vec3){half_floor, cube_y, half_floor}, 1.0f);
+    Vec3 cube_positions[4] = {
+        {-half_floor, cube_y, -half_floor},
+        {half_floor, cube_y, -half_floor},
+        {-half_floor, cube_y, half_floor},
+        {half_floor, cube_y, half_floor}};
 
-    float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
-    Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 100.0f);
-
-    Camera camera;
-    camera_init(&camera, (Vec3){0, 2, 0}, 0.0f, 0.0f);
-
-    // Register static colliders (corner cubes)
+    int cube_indices[4];
     for (int i = 0; i < 4; i++)
     {
-        camera_add_collider(&camera, corner_cubes[i].bounds);
+        cube_indices[i] = scene_add_mesh(&scene, &cube_mesh, cube_positions[i], 1.0f);
+        scene_set_rotation_speed(&scene, cube_indices[i], (Vec3){0, 0.8f, 0});
     }
 
-    // Floor boundary: an invisible wall around the arena edges
-    float floor_half = FLOOR_TOTAL_SIZE / 2.0f;
-    float wall_thick = 0.5f;
-    // North wall
-    camera_add_collider(&camera, (AABB){
-                                     .min = {-floor_half, -1, -floor_half - wall_thick},
-                                     .max = {floor_half, 10, -floor_half}});
-    // South wall
-    camera_add_collider(&camera, (AABB){
-                                     .min = {-floor_half, -1, floor_half},
-                                     .max = {floor_half, 10, floor_half + wall_thick}});
-    // West wall
-    camera_add_collider(&camera, (AABB){
-                                     .min = {-floor_half - wall_thick, -1, -floor_half},
-                                     .max = {-floor_half, 10, floor_half}});
-    // East wall
-    camera_add_collider(&camera, (AABB){
-                                     .min = {floor_half, -1, -floor_half},
-                                     .max = {floor_half + wall_thick, 10, floor_half}});
-
-    int teapot_collider_idx = camera.collider_count;
-    camera_add_collider(&camera, (AABB){0}); // Placeholder, filled after OBJ load
-
-    LOG_INFO("Registered %d colliders", camera.collider_count);
-
-    Texture floor_tex;
-    texture_create_checker(&floor_tex, 64, 8, 0xFFFF69B4, 0xFF808080);
-
+    // Teapot (loaded OBJ)
+    OBJMesh teapot;
     Font hud_font;
+
     if (hud_font_init(&hud_font) != 0)
     {
         LOG_ERROR("Failed to initialize HUD font");
@@ -187,7 +142,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    OBJMesh teapot;
     if (obj_load(&teapot, "assets/utah_teapot.obj") != 0)
     {
         LOG_ERROR("Failed to load teapot model");
@@ -199,33 +153,51 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    Vec3 teapot_pos = {3.0f, 0.0f, -3.0f};
-    float teapot_scale = 0.4f;
-    float teapot_angle = 0.0f;
+    int teapot_idx = scene_add_obj(&scene, &teapot, (Vec3){3.0f, 0.0f, -3.0f}, 0.4f);
+    scene_set_rotation_speed(&scene, teapot_idx, (Vec3){0, 0.8f, 0});
 
-    // Static teapot collider: compute worst-case AABB across all rotations.
-    // Scale the local AABB, find the max radius, then build a box around position.
+    LOG_INFO("Scene populated: %d entities", scene.count);
+
+    // Camera & Colliders
+    float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
+    Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 100.0f);
+
+    Camera camera;
+    camera_init(&camera, (Vec3){0, 2, 0}, 0.0f, 0.0f);
+
+    // Register cube colliders from entity AABBs
+    for (int i = 0; i < 4; i++)
     {
-        AABB local = teapot.bounds;
-        Vec3 scaled_min = vec3_mul(local.min, teapot_scale);
-        Vec3 scaled_max = vec3_mul(local.max, teapot_scale);
-        // Half-extents of the scaled box
-        Vec3 he = vec3_mul(vec3_sub(scaled_max, scaled_min), 0.5f);
-        Vec3 center_local = vec3_mul(vec3_add(scaled_min, scaled_max), 0.5f);
-        // Worst-case radius when rotating around Y: max of XZ extent
-        float rx = (he.x > he.z) ? he.x : he.z;
-        Vec3 worst_half = {rx, he.y, rx};
-        Vec3 world_center = vec3_add(teapot_pos, center_local);
-        AABB teapot_aabb = aabb_from_center_size(world_center, worst_half);
-        camera.colliders[teapot_collider_idx] = teapot_aabb;
+        camera_add_collider(&camera, entity_get_world_aabb(&scene.entities[cube_indices[i]]));
     }
+
+    // Floor boundary walls
+    float floor_half = FLOOR_TOTAL_SIZE / 2.0f;
+    float wall_thick = 0.5f;
+    camera_add_collider(&camera, (AABB){
+                                     .min = {-floor_half, -1, -floor_half - wall_thick},
+                                     .max = {floor_half, 10, -floor_half}});
+    camera_add_collider(&camera, (AABB){
+                                     .min = {-floor_half, -1, floor_half},
+                                     .max = {floor_half, 10, floor_half + wall_thick}});
+    camera_add_collider(&camera, (AABB){
+                                     .min = {-floor_half - wall_thick, -1, -floor_half},
+                                     .max = {-floor_half, 10, floor_half}});
+    camera_add_collider(&camera, (AABB){
+                                     .min = {floor_half, -1, -floor_half},
+                                     .max = {floor_half + wall_thick, 10, floor_half}});
+
+    // Teapot collider
+    camera_add_collider(&camera, entity_get_world_aabb(&scene.entities[teapot_idx]));
+
+    LOG_INFO("Registered %d colliders", camera.collider_count);
 
     Vec3 light_dir = vec3_normalize((Vec3){0.5f, 1.0f, -0.5f});
 
     Uint32 prev_time = SDL_GetTicks();
 
     bool key_w = false, key_s = false, key_a = false, key_d = false;
-    bool debug_aabb = true;
+    bool debug_aabb = false;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
     LOG_INFO("Entering main loop (WASD + Mouse to move, ESC to quit)");
@@ -305,15 +277,10 @@ int main(int argc, char *argv[])
         if (key_d)
             move_delta = vec3_add(move_delta, vec3_mul(camera.right, move_speed));
 
-        // Compute teapot model matrix
-        teapot_angle += 0.8f * dt;
-        Mat4 teapot_t = mat4_translate(teapot_pos.x, teapot_pos.y, teapot_pos.z);
-        Mat4 teapot_r = mat4_rotate_y(teapot_angle);
-        Mat4 teapot_s = mat4_scale(teapot_scale, teapot_scale, teapot_scale);
-        Mat4 teapot_model = mat4_mul(teapot_t, mat4_mul(teapot_r, teapot_s));
-
         if (move_delta.x != 0 || move_delta.y != 0 || move_delta.z != 0)
             camera_try_move(&camera, move_delta);
+
+        scene_update(&scene, dt);
 
         Mat4 view = camera_get_view_matrix(&camera);
         Mat4 vp = mat4_mul(proj, view);
@@ -321,193 +288,7 @@ int main(int argc, char *argv[])
         framebuffer_clear(COLOR_BLACK);
         render_clear_zbuffer();
 
-        // Render floor tiles with texture
-        for (int t = 0; t < floor_tile_count; t++)
-        {
-            Mesh *tile = &floor_tiles[t];
-            for (int i = 0; i < tile->face_count; i++)
-            {
-                Face face = tile->faces[i];
-
-                Vec3 v0 = tile->vertices[face.a];
-                Vec3 v1 = tile->vertices[face.b];
-                Vec3 v2 = tile->vertices[face.c];
-
-                // Floor is static - world coords = local coords
-                Vec3 edge1 = vec3_sub(v1, v0);
-                Vec3 edge2 = vec3_sub(v2, v0);
-                Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
-
-                // Backface culling
-                Vec3 face_center = vec3_mul(vec3_add(vec3_add(v0, v1), v2), 1.0f / 3.0f);
-                Vec3 view_dir = vec3_normalize(vec3_sub(camera.position, face_center));
-                if (vec3_dot(normal, view_dir) < 0)
-                    continue;
-
-                // Flat shading intensity
-                float intensity = vec3_dot(normal, light_dir);
-                if (intensity < 0)
-                    intensity = 0;
-                intensity = 0.3f + intensity * 0.7f;
-
-                // Calculate UVs from world position (tile repeating pattern)
-                float uv_scale = 0.5f;
-                float u0 = v0.x * uv_scale;
-                float vt0 = v0.z * uv_scale;
-                float u1 = v1.x * uv_scale;
-                float vt1 = v1.z * uv_scale;
-                float u2 = v2.x * uv_scale;
-                float vt2 = v2.z * uv_scale;
-
-                Vec4 t0 = mat4_mul_vec4(vp, vec4_from_vec3(v0, 1.0f));
-                Vec4 t1 = mat4_mul_vec4(vp, vec4_from_vec3(v1, 1.0f));
-                Vec4 t2 = mat4_mul_vec4(vp, vec4_from_vec3(v2, 1.0f));
-
-                ClipPolygon poly;
-                poly.count = 3;
-                poly.vertices[0] = (ClipVertex){t0, u0, vt0, 0};
-                poly.vertices[1] = (ClipVertex){t1, u1, vt1, 0};
-                poly.vertices[2] = (ClipVertex){t2, u2, vt2, 0};
-
-                if (clip_polygon_against_frustum(&poly) < 3)
-                    continue;
-
-                ProjectedVertex pv0 = project_vertex(poly.vertices[0].position);
-                for (int j = 1; j < poly.count - 1; j++)
-                {
-                    ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
-                    ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
-
-                    render_fill_triangle_textured(
-                        (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
-                        poly.vertices[0].u, poly.vertices[0].v, poly.vertices[0].position.w,
-                        (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
-                        poly.vertices[j].u, poly.vertices[j].v, poly.vertices[j].position.w,
-                        (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
-                        poly.vertices[j + 1].u, poly.vertices[j + 1].v, poly.vertices[j + 1].position.w,
-                        &floor_tex, intensity);
-                }
-            }
-        }
-
-        for (int c = 0; c < 4; c++)
-        {
-            Mesh *cube = &corner_cubes[c];
-            for (int i = 0; i < cube->face_count; i++)
-            {
-                Face face = cube->faces[i];
-
-                Vec3 v0 = cube->vertices[face.a];
-                Vec3 v1 = cube->vertices[face.b];
-                Vec3 v2 = cube->vertices[face.c];
-
-                Vec3 edge1 = vec3_sub(v1, v0);
-                Vec3 edge2 = vec3_sub(v2, v0);
-                Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
-
-                // Backface culling
-                Vec3 face_center = vec3_mul(vec3_add(vec3_add(v0, v1), v2), 1.0f / 3.0f);
-                Vec3 view_dir = vec3_normalize(vec3_sub(camera.position, face_center));
-                if (vec3_dot(normal, view_dir) < 0)
-                    continue;
-
-                // Flat shading
-                float intensity = vec3_dot(normal, light_dir);
-                if (intensity < 0)
-                    intensity = 0;
-                intensity = 0.2f + intensity * 0.8f;
-                uint32_t shaded_color = shade_color(face.color, intensity);
-
-                Vec4 t0 = mat4_mul_vec4(vp, vec4_from_vec3(v0, 1.0f));
-                Vec4 t1 = mat4_mul_vec4(vp, vec4_from_vec3(v1, 1.0f));
-                Vec4 t2 = mat4_mul_vec4(vp, vec4_from_vec3(v2, 1.0f));
-
-                ClipPolygon poly;
-                poly.count = 3;
-                poly.vertices[0] = (ClipVertex){t0, 0, 0, shaded_color};
-                poly.vertices[1] = (ClipVertex){t1, 0, 0, shaded_color};
-                poly.vertices[2] = (ClipVertex){t2, 0, 0, shaded_color};
-
-                if (clip_polygon_against_frustum(&poly) < 3)
-                    continue;
-
-                ProjectedVertex pv0 = project_vertex(poly.vertices[0].position);
-                for (int j = 1; j < poly.count - 1; j++)
-                {
-                    ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
-                    ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
-
-                    render_fill_triangle_z(
-                        (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
-                        (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
-                        (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
-                        poly.vertices[0].color);
-                }
-            }
-        }
-
-        // Render teapot (model matrix already computed above)
-        Mat4 teapot_mvp = mat4_mul(vp, teapot_model);
-
-        for (int i = 0; i < teapot.face_count; i++)
-        {
-            OBJFace face = teapot.faces[i];
-
-            OBJVertex ov0 = teapot.vertices[face.a];
-            OBJVertex ov1 = teapot.vertices[face.b];
-            OBJVertex ov2 = teapot.vertices[face.c];
-
-            // Transform to world space for lighting
-            Vec4 w0 = mat4_mul_vec4(teapot_model, vec4_from_vec3(ov0.position, 1.0f));
-            Vec4 w1 = mat4_mul_vec4(teapot_model, vec4_from_vec3(ov1.position, 1.0f));
-            Vec4 w2 = mat4_mul_vec4(teapot_model, vec4_from_vec3(ov2.position, 1.0f));
-            Vec3 wv0 = vec3_from_vec4(w0);
-            Vec3 wv1 = vec3_from_vec4(w1);
-            Vec3 wv2 = vec3_from_vec4(w2);
-
-            Vec3 edge1 = vec3_sub(wv1, wv0);
-            Vec3 edge2 = vec3_sub(wv2, wv0);
-            Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
-
-            // Backface culling
-            Vec3 face_center = vec3_mul(vec3_add(vec3_add(wv0, wv1), wv2), 1.0f / 3.0f);
-            Vec3 view_dir = vec3_normalize(vec3_sub(camera.position, face_center));
-            if (vec3_dot(normal, view_dir) < 0)
-                continue;
-
-            // Flat shading
-            float intensity = vec3_dot(normal, light_dir);
-            if (intensity < 0)
-                intensity = 0;
-            intensity = 0.15f + intensity * 0.85f;
-            uint32_t shaded_color = shade_color(face.color, intensity);
-
-            Vec4 t0 = mat4_mul_vec4(teapot_mvp, vec4_from_vec3(ov0.position, 1.0f));
-            Vec4 t1 = mat4_mul_vec4(teapot_mvp, vec4_from_vec3(ov1.position, 1.0f));
-            Vec4 t2 = mat4_mul_vec4(teapot_mvp, vec4_from_vec3(ov2.position, 1.0f));
-
-            ClipPolygon poly;
-            poly.count = 3;
-            poly.vertices[0] = (ClipVertex){t0, 0, 0, shaded_color};
-            poly.vertices[1] = (ClipVertex){t1, 0, 0, shaded_color};
-            poly.vertices[2] = (ClipVertex){t2, 0, 0, shaded_color};
-
-            if (clip_polygon_against_frustum(&poly) < 3)
-                continue;
-
-            ProjectedVertex pv0 = project_vertex(poly.vertices[0].position);
-            for (int j = 1; j < poly.count - 1; j++)
-            {
-                ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
-                ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
-
-                render_fill_triangle_z(
-                    (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
-                    (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
-                    (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
-                    poly.vertices[0].color);
-            }
-        }
+        scene_render(&scene, vp, camera.position, light_dir);
 
         // Debug: draw AABB wireframes for all colliders (toggle with B)
         if (debug_aabb)

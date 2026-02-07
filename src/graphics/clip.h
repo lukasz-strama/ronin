@@ -6,15 +6,17 @@
 
 #define MAX_CLIP_VERTICES 12
 
-typedef struct {
-    Vec4     position;  // Clip-space (x, y, z, w)
-    float    u, v;      // Texture coordinates
+typedef struct
+{
+    Vec4 position; // Clip-space (x, y, z, w)
+    float u, v;    // Texture coordinates
     uint32_t color;
 } ClipVertex;
 
-typedef struct {
+typedef struct
+{
     ClipVertex vertices[MAX_CLIP_VERTICES];
-    int        count;
+    int count;
 } ClipPolygon;
 
 // Clip polygon against all 6 frustum planes

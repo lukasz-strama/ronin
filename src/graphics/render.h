@@ -38,4 +38,14 @@ void render_fill_triangle_textured(
 // Debug: draw wireframe AABB projected through view-projection matrix
 void render_draw_aabb(AABB box, Mat4 vp, uint32_t color);
 
+// Shared vertex projection (clip-space -> screen-space)
+typedef struct
+{
+    Vec2 screen;
+    float z;
+} ProjectedVertex;
+
+ProjectedVertex render_project_vertex(Vec4 v);
+uint32_t render_shade_color(uint32_t base_color, float intensity);
+
 #endif

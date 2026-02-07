@@ -329,6 +329,33 @@ void render_fill_triangle_textured(
     }
 }
 
+ProjectedVertex render_project_vertex(Vec4 v)
+{
+    ProjectedVertex pv;
+    float x = v.x / v.w;
+    float y = v.y / v.w;
+    float z = v.z / v.w;
+
+    pv.screen.x = (x + 1.0f) * 0.5f * RENDER_WIDTH;
+    pv.screen.y = (1.0f - y) * 0.5f * RENDER_HEIGHT;
+    pv.z = z;
+    return pv;
+}
+
+uint32_t render_shade_color(uint32_t base_color, float intensity)
+{
+    if (intensity < 0.1f)
+        intensity = 0.1f;
+    if (intensity > 1.0f)
+        intensity = 1.0f;
+
+    uint8_t r = (uint8_t)(((base_color >> 16) & 0xFF) * intensity);
+    uint8_t g = (uint8_t)(((base_color >> 8) & 0xFF) * intensity);
+    uint8_t b = (uint8_t)((base_color & 0xFF) * intensity);
+
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
+}
+
 // Clip a line segment in clip-space against the near plane (w = NEAR_W).
 // Returns false if the segment is entirely behind the near plane.
 static bool clip_line_near(Vec4 *a, Vec4 *b)
