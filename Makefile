@@ -12,11 +12,13 @@ TARGET  = engine
 SRC     = src/core/main.c \
           src/core/log.c \
           src/core/camera.c \
+          src/core/obj_loader.c \
           src/math/math.c \
           src/graphics/render.c \
           src/graphics/mesh.c \
           src/graphics/clip.c \
-          src/graphics/texture.c
+          src/graphics/texture.c \
+          src/graphics/hud.c
 
 OBJDIR  = build
 OBJ     = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SRC))
