@@ -250,3 +250,35 @@ void hud_draw_fps(const Font *font, float dt)
     hud_draw_text(font, 5, 5, buf, 0xFF000000);
     hud_draw_text(font, 4, 4, buf, 0xFF00FF00);
 }
+
+void hud_draw_pause_menu(const Font *font)
+{
+    // Dim overlay across entire framebuffer
+    for (int py = 0; py < RENDER_HEIGHT; py++)
+    {
+        for (int px = 0; px < RENDER_WIDTH; px++)
+        {
+            render_set_pixel(px, py, 0xCC000000);
+        }
+    }
+
+    int cx = RENDER_WIDTH / 2;
+    int cy = RENDER_HEIGHT / 2;
+
+    // Title
+    const char *title = "PAUSED";
+    int tw = (int)strlen(title) * FONT_GLYPH_W;
+    hud_draw_text(font, cx - tw / 2, cy - 20, title, 0xFFFFFFFF);
+
+    // Options
+    const char *opt1 = "ESC - Resume";
+    const char *opt2 = "~   - Console";
+    const char *opt3 = "Q   - Quit";
+    int o1w = (int)strlen(opt1) * FONT_GLYPH_W;
+    int o2w = (int)strlen(opt2) * FONT_GLYPH_W;
+    int o3w = (int)strlen(opt3) * FONT_GLYPH_W;
+
+    hud_draw_text(font, cx - o1w / 2, cy, opt1, 0xFFAAAAAA);
+    hud_draw_text(font, cx - o2w / 2, cy + 12, opt2, 0xFFAAAAAA);
+    hud_draw_text(font, cx - o3w / 2, cy + 24, opt3, 0xFFAAAAAA);
+}

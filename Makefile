@@ -14,6 +14,7 @@ SRC     = src/core/main.c \
           src/core/camera.c \
           src/core/obj_loader.c \
           src/core/entity.c \
+          src/core/console.c \
           src/math/math.c \
           src/graphics/render.c \
           src/graphics/mesh.c \

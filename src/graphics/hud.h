@@ -29,5 +29,6 @@ void hud_draw_text(const Font *font, int x, int y, const char *text, uint32_t co
 // UI elements
 void hud_draw_crosshair(uint32_t color);
 void hud_draw_fps(const Font *font, float dt);
+void hud_draw_pause_menu(const Font *font);
 
 #endif

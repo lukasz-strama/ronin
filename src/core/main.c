@@ -14,6 +14,7 @@
 #include "core/camera.h"
 #include "core/obj_loader.h"
 #include "core/entity.h"
+#include "core/console.h"
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
@@ -194,15 +195,29 @@ int main(int argc, char *argv[])
 
     Vec3 light_dir = vec3_normalize((Vec3){0.5f, 1.0f, -0.5f});
 
+    // Game state machine
+    GameState game_state = GAME_STATE_PLAYING;
+    Console console;
+    console_init(&console);
+    console_log(&console, "Engine console ready. Type 'help'.");
+
+    CommandContext cmd_ctx;
+    bool running = true;
+    cmd_ctx.scene = &scene;
+    cmd_ctx.camera = &camera;
+    cmd_ctx.teapot = &teapot;
+    cmd_ctx.running = &running;
+    cmd_ctx.console = &console;
+    cmd_ctx.state = &game_state;
+
     Uint32 prev_time = SDL_GetTicks();
 
     bool key_w = false, key_s = false, key_a = false, key_d = false;
     bool debug_aabb = false;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
-    LOG_INFO("Entering main loop (WASD + Mouse to move, ESC to quit)");
+    LOG_INFO("Entering main loop (WASD + Mouse, ESC=Pause, ~=Console)");
 
-    bool running = true;
     while (running)
     {
         Uint32 curr_time = SDL_GetTicks();
@@ -215,13 +230,87 @@ int main(int argc, char *argv[])
             if (event.type == SDL_QUIT)
             {
                 running = false;
+                break;
             }
+
+            // --- Console mode input ---
+            if (game_state == GAME_STATE_CONSOLE)
+            {
+                if (event.type == SDL_KEYDOWN)
+                {
+                    SDL_Keycode key = event.key.keysym.sym;
+                    if (key == SDLK_BACKQUOTE)
+                    {
+                        game_state = GAME_STATE_PLAYING;
+                        SDL_SetRelativeMouseMode(SDL_TRUE);
+                        LOG_INFO("Console closed");
+                    }
+                    else if (key == SDLK_ESCAPE)
+                    {
+                        game_state = GAME_STATE_PAUSED;
+                    }
+                    else if (key == SDLK_RETURN)
+                    {
+                        console_execute(&console, &cmd_ctx);
+                    }
+                    else if (key == SDLK_BACKSPACE)
+                    {
+                        console_pop_char(&console);
+                    }
+                }
+                else if (event.type == SDL_TEXTINPUT)
+                {
+                    // Filter out backtick from text input
+                    char c = event.text.text[0];
+                    if (c != '`' && c != '~')
+                    {
+                        console_push_char(&console, c);
+                    }
+                }
+                continue;
+            }
+
+            // --- Paused mode input ---
+            if (game_state == GAME_STATE_PAUSED)
+            {
+                if (event.type == SDL_KEYDOWN)
+                {
+                    SDL_Keycode key = event.key.keysym.sym;
+                    if (key == SDLK_ESCAPE)
+                    {
+                        game_state = GAME_STATE_PLAYING;
+                        SDL_SetRelativeMouseMode(SDL_TRUE);
+                        LOG_INFO("Resumed");
+                    }
+                    else if (key == SDLK_BACKQUOTE)
+                    {
+                        game_state = GAME_STATE_CONSOLE;
+                        LOG_INFO("Console opened from pause");
+                    }
+                    else if (key == SDLK_q)
+                    {
+                        running = false;
+                    }
+                }
+                continue;
+            }
+
+            // --- Playing mode input ---
             if (event.type == SDL_KEYDOWN)
             {
                 switch (event.key.keysym.sym)
                 {
                 case SDLK_ESCAPE:
-                    running = false;
+                    game_state = GAME_STATE_PAUSED;
+                    SDL_SetRelativeMouseMode(SDL_FALSE);
+                    key_w = key_s = key_a = key_d = false;
+                    LOG_INFO("Paused");
+                    break;
+                case SDLK_BACKQUOTE:
+                    game_state = GAME_STATE_CONSOLE;
+                    SDL_SetRelativeMouseMode(SDL_FALSE);
+                    key_w = key_s = key_a = key_d = false;
+                    LOG_INFO("Console opened");
                     break;
                 case SDLK_w:
                     key_w = true;
@@ -266,31 +355,38 @@ int main(int argc, char *argv[])
             }
         }
 
-        float move_speed = CAMERA_SPEED * dt;
-        Vec3 move_delta = {0, 0, 0};
-        if (key_w)
-            move_delta = vec3_add(move_delta, vec3_mul(camera.direction, move_speed));
-        if (key_s)
-            move_delta = vec3_add(move_delta, vec3_mul(camera.direction, -move_speed));
-        if (key_a)
-            move_delta = vec3_sub(move_delta, vec3_mul(camera.right, move_speed));
-        if (key_d)
-            move_delta = vec3_add(move_delta, vec3_mul(camera.right, move_speed));
+        // --- Update (only while playing) ---
+        if (game_state == GAME_STATE_PLAYING)
+        {
+            float move_speed = CAMERA_SPEED * dt;
+            Vec3 move_delta = {0, 0, 0};
+            if (key_w)
+                move_delta = vec3_add(move_delta, vec3_mul(camera.direction, move_speed));
+            if (key_s)
+                move_delta = vec3_add(move_delta, vec3_mul(camera.direction, -move_speed));
+            if (key_a)
+                move_delta = vec3_sub(move_delta, vec3_mul(camera.right, move_speed));
+            if (key_d)
+                move_delta = vec3_add(move_delta, vec3_mul(camera.right, move_speed));
 
-        if (move_delta.x != 0 || move_delta.y != 0 || move_delta.z != 0)
-            camera_try_move(&camera, move_delta);
+            if (move_delta.x != 0 || move_delta.y != 0 || move_delta.z != 0)
+                camera_try_move(&camera, move_delta);
 
-        scene_update(&scene, dt);
+            scene_update(&scene, dt);
+        }
 
+        // --- Render (always) ---
         Mat4 view = camera_get_view_matrix(&camera);
         Mat4 vp = mat4_mul(proj, view);
 
         framebuffer_clear(COLOR_BLACK);
         render_clear_zbuffer();
 
-        scene_render(&scene, vp, camera.position, light_dir);
+        if (console.wireframe)
+            scene_render_wireframe(&scene, vp);
+        else
+            scene_render(&scene, vp, camera.position, light_dir);
 
-        // Debug: draw AABB wireframes for all colliders (toggle with B)
         if (debug_aabb)
         {
             for (int i = 0; i < camera.collider_count; i++)
@@ -299,9 +395,18 @@ int main(int argc, char *argv[])
             }
         }
 
-        // 2D overlay (drawn on top of 3D scene)
+        // --- HUD overlays ---
         hud_draw_crosshair(0xFFFFFFFF);
         hud_draw_fps(&hud_font, dt);
+
+        if (game_state == GAME_STATE_PAUSED)
+        {
+            hud_draw_pause_menu(&hud_font);
+        }
+        else if (game_state == GAME_STATE_CONSOLE)
+        {
+            console_draw(&console, &hud_font);
+        }
 
         SDL_UpdateTexture(texture, NULL, framebuffer, RENDER_WIDTH * sizeof(uint32_t));
         SDL_RenderClear(renderer);

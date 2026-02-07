@@ -54,6 +54,7 @@ void scene_set_rotation_speed(Scene *scene, int idx, Vec3 speed);
 void scene_set_texture(Scene *scene, int idx, Texture *tex, float uv_scale);
 void scene_update(Scene *scene, float dt);
 void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir);
+void scene_render_wireframe(Scene *scene, Mat4 vp);
 
 AABB entity_get_world_aabb(const Entity *ent);
 

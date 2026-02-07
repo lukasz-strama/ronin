@@ -324,6 +324,75 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir)
     }
 }
 
+void scene_render_wireframe(Scene *scene, Mat4 vp)
+{
+    for (int i = 0; i < scene->count; i++)
+    {
+        Entity *ent = &scene->entities[i];
+        if (!ent->active)
+            continue;
+
+        Mat4 model = entity_model_matrix(ent);
+        Mat4 mvp = mat4_mul(vp, model);
+
+        int face_count = 0;
+        if (ent->type == ENTITY_MESH)
+            face_count = ent->mesh->face_count;
+        else
+            face_count = ent->obj_mesh->face_count;
+
+        for (int f = 0; f < face_count; f++)
+        {
+            Vec3 v[3];
+            uint32_t color = 0xFF00FF00;
+
+            if (ent->type == ENTITY_MESH)
+            {
+                Face face = ent->mesh->faces[f];
+                v[0] = ent->mesh->vertices[face.a];
+                v[1] = ent->mesh->vertices[face.b];
+                v[2] = ent->mesh->vertices[face.c];
+                color = face.color;
+            }
+            else
+            {
+                OBJFace face = ent->obj_mesh->faces[f];
+                v[0] = ent->obj_mesh->vertices[face.a].position;
+                v[1] = ent->obj_mesh->vertices[face.b].position;
+                v[2] = ent->obj_mesh->vertices[face.c].position;
+                color = face.color;
+            }
+
+            // Clip-space transform
+            Vec4 cv[3];
+            for (int k = 0; k < 3; k++)
+                cv[k] = mat4_mul_vec4(mvp, vec4_from_vec3(v[k], 1.0f));
+
+            ClipPolygon poly;
+            poly.count = 3;
+            poly.vertices[0] = (ClipVertex){cv[0], 0, 0, color};
+            poly.vertices[1] = (ClipVertex){cv[1], 0, 0, color};
+            poly.vertices[2] = (ClipVertex){cv[2], 0, 0, color};
+
+            if (clip_polygon_against_frustum(&poly) < 3)
+                continue;
+
+            // Draw wireframe edges of the clipped polygon
+            for (int j = 0; j < poly.count; j++)
+            {
+                int next = (j + 1) % poly.count;
+                ProjectedVertex a = render_project_vertex(poly.vertices[j].position);
+                ProjectedVertex b = render_project_vertex(poly.vertices[next].position);
+
+                render_draw_line(
+                    (int)a.screen.x, (int)a.screen.y,
+                    (int)b.screen.x, (int)b.screen.y,
+                    color);
+            }
+        }
+    }
+}
+
 AABB entity_get_world_aabb(const Entity *ent)
 {
     AABB local;
