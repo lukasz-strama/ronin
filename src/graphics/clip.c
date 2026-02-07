@@ -9,6 +9,10 @@ static ClipVertex lerp_vertex(ClipVertex *a, ClipVertex *b, float t) {
     out.position.z = a->position.z + t * (b->position.z - a->position.z);
     out.position.w = a->position.w + t * (b->position.w - a->position.w);
 
+    // Interpolate UV coordinates
+    out.u = a->u + t * (b->u - a->u);
+    out.v = a->v + t * (b->v - a->v);
+
     // Interpolate color components
     uint8_t ra = (a->color >> 16) & 0xFF;
     uint8_t ga = (a->color >> 8)  & 0xFF;

@@ -5,6 +5,10 @@
 #include <stdint.h>
 
 typedef struct {
+    float u, v;
+} Vec2UV;
+
+typedef struct {
     int      a, b, c;   // Vertex indices
     uint32_t color;     // Per-face color
 } Face;

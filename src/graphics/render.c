@@ -197,3 +197,68 @@ void render_fill_triangle_z(
     }
 }
 
+void render_fill_triangle_textured(
+    int x0, int y0, float z0, float u0, float v0, float w0_clip,
+    int x1, int y1, float z1, float u1, float v1, float w1_clip,
+    int x2, int y2, float z2, float u2, float v2, float w2_clip,
+    const Texture *tex, float light_intensity
+) {
+    int min_x = min3(x0, x1, x2);
+    int max_x = max3(x0, x1, x2);
+    int min_y = min3(y0, y1, y2);
+    int max_y = max3(y0, y1, y2);
+
+    if (min_x < 0) min_x = 0;
+    if (min_y < 0) min_y = 0;
+    if (max_x >= RENDER_WIDTH)  max_x = RENDER_WIDTH - 1;
+    if (max_y >= RENDER_HEIGHT) max_y = RENDER_HEIGHT - 1;
+
+    float area = edge_func(x0, y0, x1, y1, x2, y2);
+    if (area == 0) return;
+
+    // Pre-compute 1/w for perspective correction
+    float inv_w0 = 1.0f / w0_clip;
+    float inv_w1 = 1.0f / w1_clip;
+    float inv_w2 = 1.0f / w2_clip;
+
+    // Pre-compute u/w and v/w for perspective-correct interpolation
+    float u0_over_w = u0 * inv_w0;
+    float v0_over_w = v0 * inv_w0;
+    float u1_over_w = u1 * inv_w1;
+    float v1_over_w = v1 * inv_w1;
+    float u2_over_w = u2 * inv_w2;
+    float v2_over_w = v2 * inv_w2;
+
+    for (int y = min_y; y <= max_y; y++) {
+        for (int x = min_x; x <= max_x; x++) {
+            float bary0 = edge_func(x1, y1, x2, y2, x, y);
+            float bary1 = edge_func(x2, y2, x0, y0, x, y);
+            float bary2 = edge_func(x0, y0, x1, y1, x, y);
+
+            if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) || 
+                (bary0 <= 0 && bary1 <= 0 && bary2 <= 0)) {
+                
+                bary0 /= area;
+                bary1 /= area;
+                bary2 /= area;
+
+                float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
+
+                float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
+                float interp_u_over_w = bary0 * u0_over_w + bary1 * u1_over_w + bary2 * u2_over_w;
+                float interp_v_over_w = bary0 * v0_over_w + bary1 * v1_over_w + bary2 * v2_over_w;
+                float u = interp_u_over_w / interp_inv_w;
+                float v = interp_v_over_w / interp_inv_w;
+
+                uint32_t tex_color = texture_sample(tex, u, v);
+
+                uint8_t r = (uint8_t)(((tex_color >> 16) & 0xFF) * light_intensity);
+                uint8_t g = (uint8_t)(((tex_color >> 8)  & 0xFF) * light_intensity);
+                uint8_t b = (uint8_t)(( tex_color        & 0xFF) * light_intensity);
+                uint32_t final_color = 0xFF000000 | (r << 16) | (g << 8) | b;
+
+                render_set_pixel_z(x, y, z, final_color);
+            }
+        }
+    }
+}

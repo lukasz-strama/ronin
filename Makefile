@@ -15,7 +15,8 @@ SRC     = src/core/main.c \
           src/math/math.c \
           src/graphics/render.c \
           src/graphics/mesh.c \
-          src/graphics/clip.c
+          src/graphics/clip.c \
+          src/graphics/texture.c
 
 OBJDIR  = build
 OBJ     = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SRC))

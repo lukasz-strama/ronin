@@ -2,6 +2,7 @@
 #define RENDER_H
 
 #include <stdint.h>
+#include "graphics/texture.h"
 
 // Must match main.c
 #define RENDER_WIDTH  320
@@ -25,6 +26,14 @@ void render_fill_triangle_z(
     int x1, int y1, float z1,
     int x2, int y2, float z2,
     uint32_t color
+);
+
+// Textured triangle with perspective-correct UV interpolation
+void render_fill_triangle_textured(
+    int x0, int y0, float z0, float u0, float v0, float w0,
+    int x1, int y1, float z1, float u1, float v1, float w1,
+    int x2, int y2, float z2, float u2, float v2, float w2,
+    const Texture *tex, float light_intensity
 );
 
 #endif

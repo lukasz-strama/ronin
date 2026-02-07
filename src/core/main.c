@@ -9,6 +9,7 @@
 #include "graphics/mesh.h"
 #include "graphics/render.h"
 #include "graphics/clip.h"
+#include "graphics/texture.h"
 #include "core/camera.h"
 
 #define WINDOW_WIDTH  800
@@ -109,14 +110,12 @@ int main(int argc, char *argv[]) {
     render_set_framebuffer(framebuffer);
     render_set_zbuffer(zbuffer);
 
-    // Generate floor tiles
     Mesh floor_tiles[MAX_FLOOR_TILES];
     int floor_tile_count = mesh_generate_floor(floor_tiles);
 
-    // Create 4 cubes at corners (with margin from edge)
     float margin = 2.0f;
     float half_floor = FLOOR_TOTAL_SIZE / 2.0f - margin;
-    float cube_y = 1.1f;  // Cubes sit slightly above floor
+    float cube_y = 1.1f;
 
     Mesh corner_cubes[4];
     corner_cubes[0] = mesh_cube_at((Vec3){ -half_floor, cube_y, -half_floor }, 1.0f);
@@ -127,15 +126,16 @@ int main(int argc, char *argv[]) {
     float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
     Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 100.0f);
 
-    // Camera starts at center of floor, eye-level above ground
     Camera camera;
     camera_init(&camera, (Vec3){ 0, 2, 0 }, 0.0f, 0.0f);
+
+    Texture floor_tex;
+    texture_create_checker(&floor_tex, 64, 8, 0xFFFF69B4, 0xFF808080);
 
     Vec3 light_dir = vec3_normalize((Vec3){ 0.5f, 1.0f, -0.5f });
 
     Uint32 prev_time = SDL_GetTicks();
 
-    // Input state
     bool key_w = false, key_s = false, key_a = false, key_d = false;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
@@ -188,7 +188,7 @@ int main(int argc, char *argv[]) {
         framebuffer_clear(COLOR_BLACK);
         render_clear_zbuffer();
 
-        // Render floor tiles (static, model = identity)
+        // Render floor tiles with texture
         for (int t = 0; t < floor_tile_count; t++) {
             Mesh *tile = &floor_tiles[t];
             for (int i = 0; i < tile->face_count; i++) {
@@ -208,11 +208,19 @@ int main(int argc, char *argv[]) {
                 Vec3 view_dir = vec3_normalize(vec3_sub(camera.position, face_center));
                 if (vec3_dot(normal, view_dir) < 0) continue;
 
-                // Flat shading
+                // Flat shading intensity
                 float intensity = vec3_dot(normal, light_dir);
                 if (intensity < 0) intensity = 0;
                 intensity = 0.3f + intensity * 0.7f;
-                uint32_t shaded_color = shade_color(face.color, intensity);
+
+                // Calculate UVs from world position (tile repeating pattern)
+                float uv_scale = 0.5f;  // Controls texture tiling frequency
+                float u0 = v0.x * uv_scale;
+                float vt0 = v0.z * uv_scale;
+                float u1 = v1.x * uv_scale;
+                float vt1 = v1.z * uv_scale;
+                float u2 = v2.x * uv_scale;
+                float vt2 = v2.z * uv_scale;
 
                 Vec4 t0 = mat4_mul_vec4(vp, vec4_from_vec3(v0, 1.0f));
                 Vec4 t1 = mat4_mul_vec4(vp, vec4_from_vec3(v1, 1.0f));
@@ -220,9 +228,9 @@ int main(int argc, char *argv[]) {
 
                 ClipPolygon poly;
                 poly.count = 3;
-                poly.vertices[0] = (ClipVertex){ t0, shaded_color };
-                poly.vertices[1] = (ClipVertex){ t1, shaded_color };
-                poly.vertices[2] = (ClipVertex){ t2, shaded_color };
+                poly.vertices[0] = (ClipVertex){ t0, u0, vt0, 0 };
+                poly.vertices[1] = (ClipVertex){ t1, u1, vt1, 0 };
+                poly.vertices[2] = (ClipVertex){ t2, u2, vt2, 0 };
 
                 if (clip_polygon_against_frustum(&poly) < 3) continue;
 
@@ -231,11 +239,14 @@ int main(int argc, char *argv[]) {
                     ProjectedVertex pv1 = project_vertex(poly.vertices[j].position);
                     ProjectedVertex pv2 = project_vertex(poly.vertices[j + 1].position);
 
-                    render_fill_triangle_z(
+                    render_fill_triangle_textured(
                         (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
+                        poly.vertices[0].u, poly.vertices[0].v, poly.vertices[0].position.w,
                         (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
+                        poly.vertices[j].u, poly.vertices[j].v, poly.vertices[j].position.w,
                         (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
-                        poly.vertices[0].color
+                        poly.vertices[j+1].u, poly.vertices[j+1].v, poly.vertices[j+1].position.w,
+                        &floor_tex, intensity
                     );
                 }
             }
@@ -272,9 +283,9 @@ int main(int argc, char *argv[]) {
 
                 ClipPolygon poly;
                 poly.count = 3;
-                poly.vertices[0] = (ClipVertex){ t0, shaded_color };
-                poly.vertices[1] = (ClipVertex){ t1, shaded_color };
-                poly.vertices[2] = (ClipVertex){ t2, shaded_color };
+                poly.vertices[0] = (ClipVertex){ t0, 0, 0, shaded_color };
+                poly.vertices[1] = (ClipVertex){ t1, 0, 0, shaded_color };
+                poly.vertices[2] = (ClipVertex){ t2, 0, 0, shaded_color };
 
                 if (clip_polygon_against_frustum(&poly) < 3) continue;
 
@@ -301,6 +312,7 @@ int main(int argc, char *argv[]) {
 
     LOG_INFO("Shutting down...");
 
+    texture_free(&floor_tex);
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
