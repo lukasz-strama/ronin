@@ -4,9 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "math.h"
-#include "mesh.h"
-#include "render.h"
+#include "core/log.h"
+#include "math/math.h"
+#include "graphics/mesh.h"
+#include "graphics/render.h"
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
@@ -57,11 +58,14 @@ int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
 
+    LOG_INFO("Initializing engine...");
+
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
 
+    LOG_INFO("Creating window (%dx%d)", WINDOW_WIDTH, WINDOW_HEIGHT);
     SDL_Window *window = SDL_CreateWindow(
         "Software Renderer",
         SDL_WINDOWPOS_CENTERED,
@@ -72,14 +76,14 @@ int main(int argc, char *argv[]) {
     );
 
     if (!window) {
-        fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
         SDL_Quit();
         return 1;
     }
 
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
-        fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_CreateRenderer failed: %s", SDL_GetError());
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
@@ -93,7 +97,7 @@ int main(int argc, char *argv[]) {
         RENDER_HEIGHT
     );
     if (!texture) {
-        fprintf(stderr, "SDL_CreateTexture failed: %s\n", SDL_GetError());
+        LOG_ERROR("SDL_CreateTexture failed: %s", SDL_GetError());
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -104,6 +108,7 @@ int main(int argc, char *argv[]) {
     render_set_zbuffer(zbuffer);
 
     Mesh cube = mesh_cube();
+    LOG_INFO("Loaded cube mesh: %d vertices, %d faces", cube.vertex_count, cube.face_count);
 
     float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
     Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 100.0f);
@@ -115,17 +120,10 @@ int main(int argc, char *argv[]) {
 
     Vec3 light_dir = vec3_normalize((Vec3){ 0, 0, -1 });
 
-    uint32_t face_colors[6] = {
-        0xFFFF0000,  // Red
-        0xFF00FF00,  // Green
-        0xFF0000FF,  // Blue
-        0xFFFFFF00,  // Yellow
-        0xFFFF00FF,  // Magenta
-        0xFF00FFFF   // Cyan
-    };
-
     float rotation = 0.0f;
     Uint32 prev_time = SDL_GetTicks();
+
+    LOG_INFO("Entering main loop");
 
     bool running = true;
     while (running) {
@@ -196,8 +194,7 @@ int main(int argc, char *argv[]) {
             if (intensity < 0) intensity = 0;
             intensity = 0.2f + intensity * 0.8f;
 
-            uint32_t base_color = face_colors[(i / 2) % 6];
-            uint32_t shaded_color = shade_color(base_color, intensity);
+            uint32_t shaded_color = shade_color(face.color, intensity);
 
             render_fill_triangle_z(
                 (int)p0.screen.x, (int)p0.screen.y, p0.z,
@@ -213,10 +210,13 @@ int main(int argc, char *argv[]) {
         SDL_RenderPresent(renderer);
     }
 
+    LOG_INFO("Shutting down...");
+
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
 
+    LOG_INFO("Goodbye!");
     return 0;
 }
