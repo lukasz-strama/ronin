@@ -19,6 +19,7 @@
 
 #define COLOR_BLACK 0xFF000000
 #define COLOR_WHITE 0xFFFFFFFF
+#define COLOR_DEBUG_AABB 0xFF00FF00 // Green wireframe
 
 #define PI 3.14159265358979323846f
 
@@ -141,6 +142,37 @@ int main(int argc, char *argv[])
     Camera camera;
     camera_init(&camera, (Vec3){0, 2, 0}, 0.0f, 0.0f);
 
+    // Register static colliders (corner cubes)
+    for (int i = 0; i < 4; i++)
+    {
+        camera_add_collider(&camera, corner_cubes[i].bounds);
+    }
+
+    // Floor boundary: an invisible wall around the arena edges
+    float floor_half = FLOOR_TOTAL_SIZE / 2.0f;
+    float wall_thick = 0.5f;
+    // North wall
+    camera_add_collider(&camera, (AABB){
+                                     .min = {-floor_half, -1, -floor_half - wall_thick},
+                                     .max = {floor_half, 10, -floor_half}});
+    // South wall
+    camera_add_collider(&camera, (AABB){
+                                     .min = {-floor_half, -1, floor_half},
+                                     .max = {floor_half, 10, floor_half + wall_thick}});
+    // West wall
+    camera_add_collider(&camera, (AABB){
+                                     .min = {-floor_half - wall_thick, -1, -floor_half},
+                                     .max = {-floor_half, 10, floor_half}});
+    // East wall
+    camera_add_collider(&camera, (AABB){
+                                     .min = {floor_half, -1, -floor_half},
+                                     .max = {floor_half + wall_thick, 10, floor_half}});
+
+    int teapot_collider_idx = camera.collider_count;
+    camera_add_collider(&camera, (AABB){0}); // Placeholder, filled after OBJ load
+
+    LOG_INFO("Registered %d colliders", camera.collider_count);
+
     Texture floor_tex;
     texture_create_checker(&floor_tex, 64, 8, 0xFFFF69B4, 0xFF808080);
 
@@ -167,16 +199,33 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Teapot transform: placed next to camera start, scaled down
     Vec3 teapot_pos = {3.0f, 0.0f, -3.0f};
     float teapot_scale = 0.4f;
     float teapot_angle = 0.0f;
+
+    // Static teapot collider: compute worst-case AABB across all rotations.
+    // Scale the local AABB, find the max radius, then build a box around position.
+    {
+        AABB local = teapot.bounds;
+        Vec3 scaled_min = vec3_mul(local.min, teapot_scale);
+        Vec3 scaled_max = vec3_mul(local.max, teapot_scale);
+        // Half-extents of the scaled box
+        Vec3 he = vec3_mul(vec3_sub(scaled_max, scaled_min), 0.5f);
+        Vec3 center_local = vec3_mul(vec3_add(scaled_min, scaled_max), 0.5f);
+        // Worst-case radius when rotating around Y: max of XZ extent
+        float rx = (he.x > he.z) ? he.x : he.z;
+        Vec3 worst_half = {rx, he.y, rx};
+        Vec3 world_center = vec3_add(teapot_pos, center_local);
+        AABB teapot_aabb = aabb_from_center_size(world_center, worst_half);
+        camera.colliders[teapot_collider_idx] = teapot_aabb;
+    }
 
     Vec3 light_dir = vec3_normalize((Vec3){0.5f, 1.0f, -0.5f});
 
     Uint32 prev_time = SDL_GetTicks();
 
     bool key_w = false, key_s = false, key_a = false, key_d = false;
+    bool debug_aabb = true;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
     LOG_INFO("Entering main loop (WASD + Mouse to move, ESC to quit)");
@@ -214,6 +263,9 @@ int main(int argc, char *argv[])
                 case SDLK_d:
                     key_d = true;
                     break;
+                case SDLK_b:
+                    debug_aabb = !debug_aabb;
+                    break;
                 }
             }
             if (event.type == SDL_KEYUP)
@@ -243,14 +295,25 @@ int main(int argc, char *argv[])
         }
 
         float move_speed = CAMERA_SPEED * dt;
+        Vec3 move_delta = {0, 0, 0};
         if (key_w)
-            camera_move_forward(&camera, move_speed);
+            move_delta = vec3_add(move_delta, vec3_mul(camera.direction, move_speed));
         if (key_s)
-            camera_move_backward(&camera, move_speed);
+            move_delta = vec3_add(move_delta, vec3_mul(camera.direction, -move_speed));
         if (key_a)
-            camera_strafe_left(&camera, move_speed);
+            move_delta = vec3_sub(move_delta, vec3_mul(camera.right, move_speed));
         if (key_d)
-            camera_strafe_right(&camera, move_speed);
+            move_delta = vec3_add(move_delta, vec3_mul(camera.right, move_speed));
+
+        // Compute teapot model matrix
+        teapot_angle += 0.8f * dt;
+        Mat4 teapot_t = mat4_translate(teapot_pos.x, teapot_pos.y, teapot_pos.z);
+        Mat4 teapot_r = mat4_rotate_y(teapot_angle);
+        Mat4 teapot_s = mat4_scale(teapot_scale, teapot_scale, teapot_scale);
+        Mat4 teapot_model = mat4_mul(teapot_t, mat4_mul(teapot_r, teapot_s));
+
+        if (move_delta.x != 0 || move_delta.y != 0 || move_delta.z != 0)
+            camera_try_move(&camera, move_delta);
 
         Mat4 view = camera_get_view_matrix(&camera);
         Mat4 vp = mat4_mul(proj, view);
@@ -288,7 +351,7 @@ int main(int argc, char *argv[])
                 intensity = 0.3f + intensity * 0.7f;
 
                 // Calculate UVs from world position (tile repeating pattern)
-                float uv_scale = 0.5f; // Controls texture tiling frequency
+                float uv_scale = 0.5f;
                 float u0 = v0.x * uv_scale;
                 float vt0 = v0.z * uv_scale;
                 float u1 = v1.x * uv_scale;
@@ -327,7 +390,6 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Render corner cubes (static, vertices already in world space)
         for (int c = 0; c < 4; c++)
         {
             Mesh *cube = &corner_cubes[c];
@@ -384,12 +446,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Rotate teapot
-        teapot_angle += 0.8f * dt;
-        Mat4 teapot_t = mat4_translate(teapot_pos.x, teapot_pos.y, teapot_pos.z);
-        Mat4 teapot_r = mat4_rotate_y(teapot_angle);
-        Mat4 teapot_s = mat4_scale(teapot_scale, teapot_scale, teapot_scale);
-        Mat4 teapot_model = mat4_mul(teapot_t, mat4_mul(teapot_r, teapot_s));
+        // Render teapot (model matrix already computed above)
         Mat4 teapot_mvp = mat4_mul(vp, teapot_model);
 
         for (int i = 0; i < teapot.face_count; i++)
@@ -449,6 +506,15 @@ int main(int argc, char *argv[])
                     (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
                     (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
                     poly.vertices[0].color);
+            }
+        }
+
+        // Debug: draw AABB wireframes for all colliders (toggle with B)
+        if (debug_aabb)
+        {
+            for (int i = 0; i < camera.collider_count; i++)
+            {
+                render_draw_aabb(camera.colliders[i], vp, COLOR_DEBUG_AABB);
             }
         }
 

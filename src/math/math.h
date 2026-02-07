@@ -1,19 +1,25 @@
 #ifndef MATH_H
 #define MATH_H
 
-typedef struct {
+#include <stdbool.h>
+
+typedef struct
+{
     float x, y;
 } Vec2;
 
-typedef struct {
+typedef struct
+{
     float x, y, z;
 } Vec3;
 
-typedef struct {
+typedef struct
+{
     float x, y, z, w;
 } Vec4;
 
-typedef struct {
+typedef struct
+{
     float m[4][4];
 } Mat4;
 
@@ -48,5 +54,17 @@ Mat4 mat4_rotate_y(float angle);
 Mat4 mat4_rotate_z(float angle);
 Mat4 mat4_perspective(float fov, float aspect, float near, float far);
 Mat4 mat4_look_at(Vec3 eye, Vec3 target, Vec3 up);
+
+// AABB (Axis-Aligned Bounding Box)
+typedef struct
+{
+    Vec3 min;
+    Vec3 max;
+} AABB;
+
+AABB aabb_from_vertices(Vec3 *vertices, int count);
+AABB aabb_transform(AABB box, Mat4 m);
+AABB aabb_from_center_size(Vec3 center, Vec3 half_extents);
+bool aabb_overlap(AABB a, AABB b);
 
 #endif

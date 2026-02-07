@@ -24,6 +24,7 @@ typedef struct
     OBJFace *faces;
     int vertex_count;
     int face_count;
+    AABB bounds;
 } OBJMesh;
 
 // The caller must free the mesh with obj_mesh_free().

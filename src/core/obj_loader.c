@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <float.h>
 
 // Capacity growth factor for dynamic arrays
 #define OBJ_INITIAL_CAP 1024
@@ -273,6 +274,30 @@ int obj_load(OBJMesh *mesh, const char *path)
     mesh->faces = shrunk_faces ? shrunk_faces : out_faces;
     mesh->vertex_count = out_vert_count;
     mesh->face_count = f_count;
+
+    // Compute AABB from all vertex positions
+    mesh->bounds.min = (Vec3){FLT_MAX, FLT_MAX, FLT_MAX};
+    mesh->bounds.max = (Vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (int i = 0; i < out_vert_count; i++)
+    {
+        Vec3 p = mesh->vertices[i].position;
+        if (p.x < mesh->bounds.min.x)
+            mesh->bounds.min.x = p.x;
+        if (p.y < mesh->bounds.min.y)
+            mesh->bounds.min.y = p.y;
+        if (p.z < mesh->bounds.min.z)
+            mesh->bounds.min.z = p.z;
+        if (p.x > mesh->bounds.max.x)
+            mesh->bounds.max.x = p.x;
+        if (p.y > mesh->bounds.max.y)
+            mesh->bounds.max.y = p.y;
+        if (p.z > mesh->bounds.max.z)
+            mesh->bounds.max.z = p.z;
+    }
+
+    LOG_INFO("OBJ AABB: min(%.2f, %.2f, %.2f) max(%.2f, %.2f, %.2f)",
+             mesh->bounds.min.x, mesh->bounds.min.y, mesh->bounds.min.z,
+             mesh->bounds.max.x, mesh->bounds.max.y, mesh->bounds.max.z);
 
     LOG_INFO("OBJ loaded: %d positions, %d texcoords, %d normals -> %d triangles (%d unrolled verts)",
              v_count, vt_count, vn_count, f_count, out_vert_count);
