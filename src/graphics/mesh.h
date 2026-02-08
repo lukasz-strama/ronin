@@ -22,6 +22,7 @@ typedef struct
     int vertex_count;
     int face_count;
     AABB bounds;
+    float radius;
 } Mesh;
 
 // Arena constants

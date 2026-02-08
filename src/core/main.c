@@ -477,6 +477,10 @@ int main(int argc, char *argv[])
         Mat4 view = camera_get_view_matrix(&camera);
         Mat4 vp = mat4_mul(proj, view);
 
+        // Extract frustum planes for culling
+        Frustum frustum = frustum_extract(vp);
+        RenderStats render_stats = {0};
+
         // Screen-to-world ray from crosshair (center of screen)
         Mat4 inv_proj = mat4_inverse(proj);
         Mat4 inv_view = mat4_inverse(view);
@@ -550,9 +554,13 @@ int main(int argc, char *argv[])
         render_clear_zbuffer();
 
         if (console.wireframe)
-            scene_render_wireframe(&scene, vp);
+            scene_render_wireframe(&scene, vp, camera.position,
+                                   &frustum, console.backface_cull,
+                                   &render_stats);
         else
-            scene_render(&scene, vp, camera.position, light_dir);
+            scene_render(&scene, vp, camera.position, light_dir,
+                         &frustum, console.backface_cull,
+                         &render_stats);
 
         if (debug_aabb)
         {
@@ -617,6 +625,7 @@ int main(int argc, char *argv[])
         // --- HUD overlays ---
         hud_draw_crosshair(0xFFFFFFFF);
         hud_draw_fps(&hud_font, dt);
+        hud_draw_cull_stats(&hud_font, &render_stats, scene.count);
 
         if (game_state == GAME_STATE_PAUSED)
         {

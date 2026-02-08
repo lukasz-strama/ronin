@@ -37,7 +37,8 @@ Mesh mesh_cube(void)
         .vertices = cube_vertices,
         .faces = cube_faces,
         .vertex_count = 8,
-        .face_count = 12};
+        .face_count = 12,
+        .radius = bounding_radius_from_vertices(cube_vertices, 8)};
     return m;
 }
 
@@ -88,7 +89,8 @@ Mesh mesh_cube_at(Vec3 position, float scale)
         .faces = faces,
         .vertex_count = 8,
         .face_count = 12,
-        .bounds = aabb_from_vertices(verts, 8)};
+        .bounds = aabb_from_vertices(verts, 8),
+        .radius = bounding_radius_from_vertices(verts, 8)};
     return m;
 }
 
@@ -122,7 +124,8 @@ Mesh mesh_floor_tile(float x, float z, float size, uint32_t color)
         .vertices = verts,
         .faces = faces,
         .vertex_count = 4,
-        .face_count = 2};
+        .face_count = 2,
+        .radius = bounding_radius_from_vertices(verts, 4)};
     return m;
 }
 

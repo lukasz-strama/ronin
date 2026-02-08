@@ -451,3 +451,129 @@ bool ray_aabb_intersect(Ray ray, AABB box, float *t_out)
         *t_out = (tmin >= 0) ? tmin : tmax;
     return true;
 }
+
+// Extract 6 frustum planes from a combined View-Projection matrix.
+// Row-major convention: plane normals point inward.
+Frustum frustum_extract(Mat4 vp)
+{
+    Frustum f;
+
+    // Left:   row3 + row0
+    f.planes[0] = (Plane){
+        vp.m[3][0] + vp.m[0][0],
+        vp.m[3][1] + vp.m[0][1],
+        vp.m[3][2] + vp.m[0][2],
+        vp.m[3][3] + vp.m[0][3]};
+
+    // Right:  row3 - row0
+    f.planes[1] = (Plane){
+        vp.m[3][0] - vp.m[0][0],
+        vp.m[3][1] - vp.m[0][1],
+        vp.m[3][2] - vp.m[0][2],
+        vp.m[3][3] - vp.m[0][3]};
+
+    // Bottom: row3 + row1
+    f.planes[2] = (Plane){
+        vp.m[3][0] + vp.m[1][0],
+        vp.m[3][1] + vp.m[1][1],
+        vp.m[3][2] + vp.m[1][2],
+        vp.m[3][3] + vp.m[1][3]};
+
+    // Top:    row3 - row1
+    f.planes[3] = (Plane){
+        vp.m[3][0] - vp.m[1][0],
+        vp.m[3][1] - vp.m[1][1],
+        vp.m[3][2] - vp.m[1][2],
+        vp.m[3][3] - vp.m[1][3]};
+
+    // Near:   row3 + row2
+    f.planes[4] = (Plane){
+        vp.m[3][0] + vp.m[2][0],
+        vp.m[3][1] + vp.m[2][1],
+        vp.m[3][2] + vp.m[2][2],
+        vp.m[3][3] + vp.m[2][3]};
+
+    // Far:    row3 - row2
+    f.planes[5] = (Plane){
+        vp.m[3][0] - vp.m[2][0],
+        vp.m[3][1] - vp.m[2][1],
+        vp.m[3][2] - vp.m[2][2],
+        vp.m[3][3] - vp.m[2][3]};
+
+    // Normalize each plane
+    for (int i = 0; i < 6; i++)
+    {
+        float len = sqrtf(f.planes[i].a * f.planes[i].a +
+                          f.planes[i].b * f.planes[i].b +
+                          f.planes[i].c * f.planes[i].c);
+        if (len > 1e-8f)
+        {
+            float inv = 1.0f / len;
+            f.planes[i].a *= inv;
+            f.planes[i].b *= inv;
+            f.planes[i].c *= inv;
+            f.planes[i].d *= inv;
+        }
+    }
+
+    return f;
+}
+
+// Test whether a bounding sphere is at least partially inside the frustum.
+// Returns true if visible (not fully outside any plane).
+bool frustum_test_sphere(const Frustum *f, Vec3 center, float radius)
+{
+    for (int i = 0; i < 6; i++)
+    {
+        float dist = f->planes[i].a * center.x +
+                     f->planes[i].b * center.y +
+                     f->planes[i].c * center.z +
+                     f->planes[i].d;
+        if (dist < -radius)
+            return false;
+    }
+    return true;
+}
+
+float bounding_radius_from_vertices(Vec3 *vertices, int count)
+{
+    if (count <= 0)
+        return 0.0f;
+
+    // Compute center as midpoint of AABB
+    Vec3 min_v = vertices[0];
+    Vec3 max_v = vertices[0];
+    for (int i = 1; i < count; i++)
+    {
+        if (vertices[i].x < min_v.x)
+            min_v.x = vertices[i].x;
+        if (vertices[i].y < min_v.y)
+            min_v.y = vertices[i].y;
+        if (vertices[i].z < min_v.z)
+            min_v.z = vertices[i].z;
+        if (vertices[i].x > max_v.x)
+            max_v.x = vertices[i].x;
+        if (vertices[i].y > max_v.y)
+            max_v.y = vertices[i].y;
+        if (vertices[i].z > max_v.z)
+            max_v.z = vertices[i].z;
+    }
+
+    Vec3 center = vec3_mul(vec3_add(min_v, max_v), 0.5f);
+    float max_dist_sq = 0.0f;
+    for (int i = 0; i < count; i++)
+    {
+        Vec3 d = vec3_sub(vertices[i], center);
+        float dist_sq = vec3_dot(d, d);
+        if (dist_sq > max_dist_sq)
+            max_dist_sq = dist_sq;
+    }
+    return sqrtf(max_dist_sq);
+}
+
+float bounding_radius_from_aabb(AABB box)
+{
+    Vec3 center = vec3_mul(vec3_add(box.min, box.max), 0.5f);
+    Vec3 d = vec3_sub(box.max, center);
+    return vec3_length(d);
+}

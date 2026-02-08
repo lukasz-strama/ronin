@@ -108,9 +108,31 @@ static Mat4 entity_model_matrix(const Entity *ent)
     return mat4_mul(t, mat4_mul(ry, mat4_mul(rx, mat4_mul(rz, s))));
 }
 
+// Compute world-space bounding sphere center and scaled radius for an entity
+static void entity_bounding_sphere(const Entity *ent, Vec3 *center_out, float *radius_out)
+{
+    AABB local;
+    float local_radius;
+    if (ent->type == ENTITY_MESH)
+    {
+        local = ent->mesh->bounds;
+        local_radius = ent->mesh->radius;
+    }
+    else
+    {
+        local = ent->obj_mesh->bounds;
+        local_radius = ent->obj_mesh->radius;
+    }
+
+    Vec3 local_center = vec3_mul(vec3_add(local.min, local.max), 0.5f);
+    *center_out = vec3_add(ent->position, vec3_mul(local_center, ent->scale));
+    *radius_out = local_radius * ent->scale;
+}
+
 // Render a Mesh entity with flat shading (cubes, etc.)
 static void render_mesh_flat(const Entity *ent, Mat4 model, Mat4 vp,
-                             Vec3 cam_pos, Vec3 light_dir)
+                             Vec3 cam_pos, Vec3 light_dir,
+                             bool backface_cull, int *bf_culled, int *tri_drawn)
 {
     Mesh *m = ent->mesh;
     Mat4 mvp = mat4_mul(vp, model);
@@ -134,8 +156,12 @@ static void render_mesh_flat(const Entity *ent, Mat4 model, Mat4 vp,
         // Backface culling
         Vec3 center = vec3_mul(vec3_add(vec3_add(wv0, wv1), wv2), 1.0f / 3.0f);
         Vec3 view_dir = vec3_normalize(vec3_sub(cam_pos, center));
-        if (vec3_dot(normal, view_dir) < 0)
+        if (backface_cull && vec3_dot(normal, view_dir) < 0)
+        {
+            if (bf_culled)
+                (*bf_culled)++;
             continue;
+        }
 
         float intensity = vec3_dot(normal, light_dir);
         if (intensity < 0)
@@ -167,13 +193,16 @@ static void render_mesh_flat(const Entity *ent, Mat4 model, Mat4 vp,
                 (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
                 (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
                 poly.vertices[0].color);
+            if (tri_drawn)
+                (*tri_drawn)++;
         }
     }
 }
 
 // Render a Mesh entity with world-space UV texturing (floor tiles, etc.)
 static void render_mesh_textured(const Entity *ent, Mat4 model, Mat4 vp,
-                                 Vec3 cam_pos, Vec3 light_dir)
+                                 Vec3 cam_pos, Vec3 light_dir,
+                                 bool backface_cull, int *bf_culled, int *tri_drawn)
 {
     Mesh *m = ent->mesh;
 
@@ -199,8 +228,12 @@ static void render_mesh_textured(const Entity *ent, Mat4 model, Mat4 vp,
         // Backface culling
         Vec3 center = vec3_mul(vec3_add(vec3_add(wv0, wv1), wv2), 1.0f / 3.0f);
         Vec3 view_dir = vec3_normalize(vec3_sub(cam_pos, center));
-        if (vec3_dot(normal, view_dir) < 0)
+        if (backface_cull && vec3_dot(normal, view_dir) < 0)
+        {
+            if (bf_culled)
+                (*bf_culled)++;
             continue;
+        }
 
         float intensity = vec3_dot(normal, light_dir);
         if (intensity < 0)
@@ -240,13 +273,16 @@ static void render_mesh_textured(const Entity *ent, Mat4 model, Mat4 vp,
                 (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
                 poly.vertices[j + 1].u, poly.vertices[j + 1].v, poly.vertices[j + 1].position.w,
                 ent->texture, intensity);
+            if (tri_drawn)
+                (*tri_drawn)++;
         }
     }
 }
 
 // Render an OBJMesh entity with flat shading
 static void render_obj_flat(const Entity *ent, Mat4 model, Mat4 vp,
-                            Vec3 cam_pos, Vec3 light_dir)
+                            Vec3 cam_pos, Vec3 light_dir,
+                            bool backface_cull, int *bf_culled, int *tri_drawn)
 {
     OBJMesh *m = ent->obj_mesh;
     Mat4 mvp = mat4_mul(vp, model);
@@ -270,8 +306,12 @@ static void render_obj_flat(const Entity *ent, Mat4 model, Mat4 vp,
         // Backface culling
         Vec3 center = vec3_mul(vec3_add(vec3_add(wv0, wv1), wv2), 1.0f / 3.0f);
         Vec3 view_dir = vec3_normalize(vec3_sub(cam_pos, center));
-        if (vec3_dot(normal, view_dir) < 0)
+        if (backface_cull && vec3_dot(normal, view_dir) < 0)
+        {
+            if (bf_culled)
+                (*bf_culled)++;
             continue;
+        }
 
         float intensity = vec3_dot(normal, light_dir);
         if (intensity < 0)
@@ -303,17 +343,38 @@ static void render_obj_flat(const Entity *ent, Mat4 model, Mat4 vp,
                 (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
                 (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
                 poly.vertices[0].color);
+            if (tri_drawn)
+                (*tri_drawn)++;
         }
     }
 }
 
-void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir)
+void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir,
+                  const Frustum *frustum, bool backface_cull,
+                  RenderStats *stats_out)
 {
+    int culled = 0;
+    int bf_culled = 0;
+    int tri_drawn = 0;
+
     for (int i = 0; i < scene->count; i++)
     {
         Entity *ent = &scene->entities[i];
         if (!ent->active)
             continue;
+
+        // Frustum culling via bounding sphere
+        if (frustum)
+        {
+            Vec3 sphere_center;
+            float sphere_radius;
+            entity_bounding_sphere(ent, &sphere_center, &sphere_radius);
+            if (!frustum_test_sphere(frustum, sphere_center, sphere_radius))
+            {
+                culled++;
+                continue;
+            }
+        }
 
         Mat4 model = entity_model_matrix(ent);
 
@@ -321,24 +382,53 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir)
         {
         case ENTITY_MESH:
             if (ent->render_mode == RENDER_TEXTURED && ent->texture)
-                render_mesh_textured(ent, model, vp, camera_pos, light_dir);
+                render_mesh_textured(ent, model, vp, camera_pos, light_dir,
+                                     backface_cull, &bf_culled, &tri_drawn);
             else
-                render_mesh_flat(ent, model, vp, camera_pos, light_dir);
+                render_mesh_flat(ent, model, vp, camera_pos, light_dir,
+                                 backface_cull, &bf_culled, &tri_drawn);
             break;
         case ENTITY_OBJ_MESH:
-            render_obj_flat(ent, model, vp, camera_pos, light_dir);
+            render_obj_flat(ent, model, vp, camera_pos, light_dir,
+                            backface_cull, &bf_culled, &tri_drawn);
             break;
         }
     }
+
+    if (stats_out)
+    {
+        stats_out->entities_culled = culled;
+        stats_out->backface_culled = bf_culled;
+        stats_out->triangles_drawn = tri_drawn;
+    }
 }
 
-void scene_render_wireframe(Scene *scene, Mat4 vp)
+void scene_render_wireframe(Scene *scene, Mat4 vp, Vec3 camera_pos,
+                            const Frustum *frustum, bool backface_cull,
+                            RenderStats *stats_out)
 {
+    int culled = 0;
+    int bf_culled = 0;
+    int tri_drawn = 0;
+
     for (int i = 0; i < scene->count; i++)
     {
         Entity *ent = &scene->entities[i];
         if (!ent->active)
             continue;
+
+        // Frustum culling via bounding sphere
+        if (frustum)
+        {
+            Vec3 sphere_center;
+            float sphere_radius;
+            entity_bounding_sphere(ent, &sphere_center, &sphere_radius);
+            if (!frustum_test_sphere(frustum, sphere_center, sphere_radius))
+            {
+                culled++;
+                continue;
+            }
+        }
 
         Mat4 model = entity_model_matrix(ent);
         Mat4 mvp = mat4_mul(vp, model);
@@ -371,6 +461,26 @@ void scene_render_wireframe(Scene *scene, Mat4 vp)
                 color = face.color;
             }
 
+            // Backface culling in wireframe
+            if (backface_cull)
+            {
+                Vec3 wv0 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(v[0], 1.0f)));
+                Vec3 wv1 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(v[1], 1.0f)));
+                Vec3 wv2 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(v[2], 1.0f)));
+
+                Vec3 edge1 = vec3_sub(wv1, wv0);
+                Vec3 edge2 = vec3_sub(wv2, wv0);
+                Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
+
+                Vec3 center = vec3_mul(vec3_add(vec3_add(wv0, wv1), wv2), 1.0f / 3.0f);
+                Vec3 view_dir = vec3_normalize(vec3_sub(camera_pos, center));
+                if (vec3_dot(normal, view_dir) < 0)
+                {
+                    bf_culled++;
+                    continue;
+                }
+            }
+
             // Clip-space transform
             Vec4 cv[3];
             for (int k = 0; k < 3; k++)
@@ -397,7 +507,15 @@ void scene_render_wireframe(Scene *scene, Mat4 vp)
                     (int)b.screen.x, (int)b.screen.y,
                     color);
             }
+            tri_drawn++;
         }
+    }
+
+    if (stats_out)
+    {
+        stats_out->entities_culled = culled;
+        stats_out->backface_culled = bf_culled;
+        stats_out->triangles_drawn = tri_drawn;
     }
 }
 

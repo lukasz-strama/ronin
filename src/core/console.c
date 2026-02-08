@@ -24,6 +24,7 @@ void console_init(Console *con)
     memset(con, 0, sizeof(Console));
     con->wireframe = false;
     con->debug_rays = false;
+    con->backface_cull = true;
     LOG_INFO("Console initialized");
 }
 
@@ -88,7 +89,7 @@ void console_scroll(Console *con, int delta)
     // Strict clamping: prevent scrolling past the top (start index 0)
     // We want: log_count - offset >= min(log_count, CON_MAX_VISIBLE)
     // So: offset <= log_count - min(log_count, CON_MAX_VISIBLE)
-    
+
     int min_visible = con->log_count < CON_MAX_VISIBLE ? con->log_count : CON_MAX_VISIBLE;
     int max_offset = con->log_count - min_visible;
 
@@ -126,17 +127,20 @@ void console_draw(const Console *con, const Font *font)
     int text_y = y0 + pad;
 
     int max_visible = CON_MAX_VISIBLE;
-    
+
     int end_index = con->log_count - con->scroll_offset;
-    if (end_index > con->log_count) end_index = con->log_count;
-    
+    if (end_index > con->log_count)
+        end_index = con->log_count;
+
     int start_index = end_index - max_visible;
-    if (start_index < 0) start_index = 0;
+    if (start_index < 0)
+        start_index = 0;
 
     // DEBUG: Only print when scroll offset changes (pseudo-debounced) or just once per second?
     // Using static variable to spam less
     static int last_offset = -1;
-    if (con->scroll_offset != last_offset) {
+    if (con->scroll_offset != last_offset)
+    {
         last_offset = con->scroll_offset;
     }
 
@@ -208,6 +212,7 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, " spawn teapot       - add teapot");
         console_log(con, " set speed <N>      - rotation spd");
         console_log(con, " toggle wireframe   - wireframe");
+        console_log(con, " toggle backface    - backface cull");
         console_log(con, " toggle aabb        - bounding box");
         console_log(con, " toggle rays        - ray debug vis");
         console_log(con, " deselect           - clear sel");
@@ -279,6 +284,13 @@ void console_execute(Console *con, CommandContext *ctx)
         con->wireframe = !con->wireframe;
         console_log(con, "Wireframe: %s", con->wireframe ? "ON" : "OFF");
     }
+    // --- toggle backface ---
+    else if (strcmp(tokens[0], "toggle") == 0 && ntokens >= 2 &&
+             strcmp(tokens[1], "backface") == 0)
+    {
+        con->backface_cull = !con->backface_cull;
+        console_log(con, "Backface culling: %s", con->backface_cull ? "ON" : "OFF");
+    }
     // --- toggle aabb ---
     else if (strcmp(tokens[0], "toggle") == 0 && ntokens >= 2 &&
              strcmp(tokens[1], "aabb") == 0)
@@ -322,7 +334,8 @@ void console_execute(Console *con, CommandContext *ctx)
             if (level_load_map(tokens[1], ctx->scene, ctx->camera,
                                ctx->loaded_map, ctx->collision_grid) == 0)
             {
-                if (ctx->current_map_path) {
+                if (ctx->current_map_path)
+                {
                     strncpy(ctx->current_map_path, tokens[1], 255);
                     ctx->current_map_path[255] = '\0';
                 }
@@ -369,14 +382,16 @@ void console_execute(Console *con, CommandContext *ctx)
     {
         // Warn if loading .lvl with load_map
         char *ext = strrchr(tokens[1], '.');
-        if (ext && strcmp(ext, ".lvl") == 0) {
+        if (ext && strcmp(ext, ".lvl") == 0)
+        {
             console_log(con, "ERROR: Use 'load_level' for .lvl files!");
         }
         else if (level_load_map(tokens[1], ctx->scene, ctx->camera,
-                           ctx->loaded_map, ctx->collision_grid) == 0)
+                                ctx->loaded_map, ctx->collision_grid) == 0)
         {
             // Track the loaded map path for save
-            if (ctx->current_map_path) {
+            if (ctx->current_map_path)
+            {
                 strncpy(ctx->current_map_path, tokens[1], 255);
                 ctx->current_map_path[255] = '\0';
             }

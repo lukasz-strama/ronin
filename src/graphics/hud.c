@@ -1,5 +1,6 @@
 #include "graphics/hud.h"
 #include "graphics/render.h"
+#include "core/entity.h"
 #include "core/log.h"
 
 #include <stdlib.h>
@@ -272,8 +273,8 @@ void hud_draw_pause_menu(const Font *font)
 
     // Options
     const char *opt1 = "ESC - Resume";
-    const char *opt2 = "~   - Console";
-    const char *opt3 = "Q   - Quit";
+    const char *opt2 = "  ~ - Console";
+    const char *opt3 = "  Q - Quit";
     int o1w = (int)strlen(opt1) * FONT_GLYPH_W;
     int o2w = (int)strlen(opt2) * FONT_GLYPH_W;
     int o3w = (int)strlen(opt3) * FONT_GLYPH_W;
@@ -281,4 +282,31 @@ void hud_draw_pause_menu(const Font *font)
     hud_draw_text(font, cx - o1w / 2, cy, opt1, 0xFFAAAAAA);
     hud_draw_text(font, cx - o2w / 2, cy + 12, opt2, 0xFFAAAAAA);
     hud_draw_text(font, cx - o3w / 2, cy + 24, opt3, 0xFFAAAAAA);
+}
+
+void hud_draw_cull_stats(const Font *font, const RenderStats *stats, int total_entities)
+{
+    // Line 1: visible entities
+    char buf1[32];
+    int visible = total_entities - stats->entities_culled;
+    snprintf(buf1, sizeof(buf1), "ENT:%d/%d", visible, total_entities);
+
+    // Line 2: triangles drawn / backface-culled
+    char buf2[32];
+    snprintf(buf2, sizeof(buf2), "TRI:%d BF:%d", stats->triangles_drawn, stats->backface_culled);
+
+    int len1 = (int)strlen(buf1) * FONT_GLYPH_W;
+    int len2 = (int)strlen(buf2) * FONT_GLYPH_W;
+    int text_w = len1 > len2 ? len1 : len2;
+    int x = RENDER_WIDTH - text_w - 6;
+    int y = 2;
+    int line_h = FONT_GLYPH_H + 2;
+
+    hud_blit_rect(x - 2, y, text_w + 4, line_h * 2 + 4, 0xFF0A0A0A);
+
+    hud_draw_text(font, x + 1, y + 3, buf1, 0xFF000000);
+    hud_draw_text(font, x, y + 2, buf1, 0xFF00CCFF);
+
+    hud_draw_text(font, x + 1, y + 3 + line_h, buf2, 0xFF000000);
+    hud_draw_text(font, x, y + 2 + line_h, buf2, 0xFF00CCFF);
 }

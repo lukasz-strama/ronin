@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+#include <math.h>
 
 // Capacity growth factor for dynamic arrays
 #define OBJ_INITIAL_CAP 1024
@@ -298,6 +299,20 @@ int obj_load(OBJMesh *mesh, const char *path)
     LOG_INFO("OBJ AABB: min(%.2f, %.2f, %.2f) max(%.2f, %.2f, %.2f)",
              mesh->bounds.min.x, mesh->bounds.min.y, mesh->bounds.min.z,
              mesh->bounds.max.x, mesh->bounds.max.y, mesh->bounds.max.z);
+
+    // Bounding sphere radius from AABB center to furthest vertex
+    Vec3 center = vec3_mul(vec3_add(mesh->bounds.min, mesh->bounds.max), 0.5f);
+    float max_dist_sq = 0.0f;
+    for (int i = 0; i < out_vert_count; i++)
+    {
+        Vec3 d = vec3_sub(mesh->vertices[i].position, center);
+        float dist_sq = vec3_dot(d, d);
+        if (dist_sq > max_dist_sq)
+            max_dist_sq = dist_sq;
+    }
+    mesh->radius = sqrtf(max_dist_sq);
+
+    LOG_INFO("OBJ bounding radius: %.2f", mesh->radius);
 
     LOG_INFO("OBJ loaded: %d positions, %d texcoords, %d normals -> %d triangles (%d unrolled verts)",
              v_count, vt_count, vn_count, f_count, out_vert_count);

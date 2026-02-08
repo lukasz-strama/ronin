@@ -79,4 +79,22 @@ Ray ray_from_screen(int screen_x, int screen_y, int screen_w, int screen_h,
                     Mat4 inv_proj, Mat4 inv_view, Vec3 cam_pos);
 bool ray_aabb_intersect(Ray ray, AABB box, float *t_out);
 
+// Frustum culling
+typedef struct
+{
+    float a, b, c, d; // Normal (a,b,c) and distance d: ax+by+cz+d=0
+} Plane;
+
+typedef struct
+{
+    Plane planes[6]; // Left, Right, Bottom, Top, Near, Far
+} Frustum;
+
+Frustum frustum_extract(Mat4 vp);
+bool frustum_test_sphere(const Frustum *f, Vec3 center, float radius);
+
+// Bounding radius from vertices (distance from center to furthest vertex)
+float bounding_radius_from_vertices(Vec3 *vertices, int count);
+float bounding_radius_from_aabb(AABB box);
+
 #endif

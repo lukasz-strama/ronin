@@ -15,6 +15,8 @@ typedef struct
     int cols;      // Characters per row in atlas
 } Font;
 
+struct RenderStats;
+
 // Font atlas
 int hud_font_init(Font *font);
 void hud_font_free(Font *font);
@@ -30,5 +32,6 @@ void hud_draw_text(const Font *font, int x, int y, const char *text, uint32_t co
 void hud_draw_crosshair(uint32_t color);
 void hud_draw_fps(const Font *font, float dt);
 void hud_draw_pause_menu(const Font *font);
+void hud_draw_cull_stats(const Font *font, const struct RenderStats *stats, int total_entities);
 
 #endif
