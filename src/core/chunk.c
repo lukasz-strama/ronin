@@ -19,6 +19,22 @@ typedef struct
     int capacity;
 } CellAccum;
 
+// Render packet for front-to-back chunk sorting
+typedef struct
+{
+    const WorldChunk *chunk;
+    float dist_sq;
+} RenderPacket;
+
+static int compare_packets_asc(const void *a, const void *b)
+{
+    float da = ((const RenderPacket *)a)->dist_sq;
+    float db = ((const RenderPacket *)b)->dist_sq;
+    if (da < db) return -1;
+    if (da > db) return  1;
+    return 0;
+}
+
 static void accum_push(CellAccum *a, int idx)
 {
     if (a->count >= a->capacity)
@@ -399,6 +415,10 @@ void chunk_grid_render(const ChunkGrid *grid, Mat4 vp,
     int tri_drawn = 0;
     int clip_triv = 0;
 
+    // Collect visible chunks with distance for front-to-back sorting
+    RenderPacket packets[MAX_CHUNKS];
+    int packet_count = 0;
+
     for (int i = 0; i < grid->count; i++)
     {
         const WorldChunk *ch = &grid->chunks[i];
@@ -412,7 +432,21 @@ void chunk_grid_render(const ChunkGrid *grid, Mat4 vp,
             }
         }
 
-        render_chunk_flat(ch, vp, camera_pos, light_dir,
+        Vec3 diff = vec3_sub(ch->center, camera_pos);
+        float dist_sq = vec3_dot(diff, diff);
+
+        packets[packet_count].chunk = ch;
+        packets[packet_count].dist_sq = dist_sq;
+        packet_count++;
+    }
+
+    // Sort front-to-back (closest first) for Z-buffer efficiency
+    qsort(packets, (size_t)packet_count, sizeof(RenderPacket), compare_packets_asc);
+
+    // Draw in sorted order
+    for (int i = 0; i < packet_count; i++)
+    {
+        render_chunk_flat(packets[i].chunk, vp, camera_pos, light_dir,
                           backface_cull, &bf_culled, &tri_drawn, &clip_triv);
     }
 
@@ -435,6 +469,10 @@ void chunk_grid_render_wireframe(const ChunkGrid *grid, Mat4 vp,
     int tri_drawn = 0;
     int clip_triv = 0;
 
+    // Collect visible chunks with distance for front-to-back sorting
+    RenderPacket packets[MAX_CHUNKS];
+    int packet_count = 0;
+
     for (int i = 0; i < grid->count; i++)
     {
         const WorldChunk *ch = &grid->chunks[i];
@@ -448,7 +486,21 @@ void chunk_grid_render_wireframe(const ChunkGrid *grid, Mat4 vp,
             }
         }
 
-        render_chunk_wireframe(ch, vp, camera_pos,
+        Vec3 diff = vec3_sub(ch->center, camera_pos);
+        float dist_sq = vec3_dot(diff, diff);
+
+        packets[packet_count].chunk = ch;
+        packets[packet_count].dist_sq = dist_sq;
+        packet_count++;
+    }
+
+    // Sort front-to-back (closest first)
+    qsort(packets, (size_t)packet_count, sizeof(RenderPacket), compare_packets_asc);
+
+    // Draw in sorted order
+    for (int i = 0; i < packet_count; i++)
+    {
+        render_chunk_wireframe(packets[i].chunk, vp, camera_pos,
                                backface_cull, &bf_culled, &tri_drawn, &clip_triv);
     }
 

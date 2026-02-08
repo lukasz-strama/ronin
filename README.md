@@ -33,6 +33,7 @@ This software implements a complete 3D graphics pipeline from scratch, utilizing
 *   **Visibility Determination**: Z-Buffering (with Early Z-Rejection), Frustum Culling, and Backface Culling are implemented for scene optimization.
 *   **Spatial Partitioning**: A Grid/Bucket system is utilized to reduce the computational complexity of tracking physics interactions.
 *   **Chunking**: Large meshes are subdivided into chunks to maximize culling efficiency.
+*   **Chunk Sorting**: Maximize Early-Z Rejection by sorting chunks front-to-back.
 
 ## Usage
 The compilation is handled via the provided `Makefile`.
