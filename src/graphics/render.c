@@ -19,6 +19,75 @@ void render_set_zbuffer(float *buffer)
     LOG_INFO("Z-buffer initialized");
 }
 
+static bool g_fog_enabled = false;
+static float g_fog_start = 10.0f;
+static float g_fog_end = 50.0f;
+static uint32_t g_fog_color = 0xFF818181; // Grey
+
+static uint32_t g_skybox_top = 0xFF0000AA; // Deep blue
+static uint32_t g_skybox_bottom = 0xFF808080; // Grey
+
+void render_set_fog(bool enabled, float start, float end, uint32_t color)
+{
+    g_fog_enabled = enabled;
+    g_fog_start = start;
+    g_fog_end = end;
+    g_fog_color = color;
+}
+
+void render_get_fog(bool *enabled, float *start, float *end, uint32_t *color)
+{
+    if (enabled) *enabled = g_fog_enabled;
+    if (start) *start = g_fog_start;
+    if (end) *end = g_fog_end;
+    if (color) *color = g_fog_color;
+}
+
+void render_set_skybox(uint32_t top, uint32_t bottom)
+{
+    g_skybox_top = top;
+    g_skybox_bottom = bottom;
+}
+
+void render_get_skybox(uint32_t *top, uint32_t *bottom)
+{
+    if (top) *top = g_skybox_top;
+    if (bottom) *bottom = g_skybox_bottom;
+}
+
+static uint32_t blend_colors(uint32_t c1, uint32_t c2, float t)
+{
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+
+    uint8_t r1 = (c1 >> 16) & 0xFF;
+    uint8_t g1 = (c1 >> 8) & 0xFF;
+    uint8_t b1 = c1 & 0xFF;
+
+    uint8_t r2 = (c2 >> 16) & 0xFF;
+    uint8_t g2 = (c2 >> 8) & 0xFF;
+    uint8_t b2 = c2 & 0xFF;
+
+    uint8_t r = (uint8_t)(r1 + (r2 - r1) * t);
+    uint8_t g = (uint8_t)(g1 + (g2 - g1) * t);
+    uint8_t b = (uint8_t)(b1 + (b2 - b1) * t);
+
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
+}
+
+void render_clear_gradient(void)
+{
+    for (int y = 0; y < RENDER_HEIGHT; y++)
+    {
+        float t = (float)y / (float)RENDER_HEIGHT;
+        uint32_t color = blend_colors(g_skybox_top, g_skybox_bottom, t);
+        for (int x = 0; x < RENDER_WIDTH; x++)
+        {
+            g_framebuffer[y * RENDER_WIDTH + x] = color;
+        }
+    }
+}
+
 void render_clear_zbuffer(void)
 {
     if (g_zbuffer)
@@ -194,10 +263,21 @@ static float edge_func(int ax, int ay, int bx, int by, int px, int py)
     return (float)((px - ax) * (by - ay) - (py - ay) * (bx - ax));
 }
 
+// Apply fog to a color based on depth w
+static uint32_t apply_fog(uint32_t color, float w)
+{
+    if (!g_fog_enabled)
+        return color;
+
+    // Linear fog factor
+    float factor = (w - g_fog_start) / (g_fog_end - g_fog_start);
+    return blend_colors(color, g_fog_color, factor);
+}
+
 void render_fill_triangle_z(
-    int x0, int y0, float z0,
-    int x1, int y1, float z1,
-    int x2, int y2, float z2,
+    int x0, int y0, float z0, float w0,
+    int x1, int y1, float z1, float w1,
+    int x2, int y2, float z2, float w2,
     uint32_t color)
 {
     // Bounding box
@@ -220,6 +300,15 @@ void render_fill_triangle_z(
     if (area == 0)
         return;
 
+    // Pre-compute 1/w for perspective correct W interpolation
+    // Note: To interpolate 'w' linearly in screen space, we actually
+    // interpolate 1/w and then invert it back.
+    // Wait, w is linear in view space, but non-linear in screen space.
+    // The standard perspective correction is: interpolate 1/w.
+    float inv_w0 = 1.0f / w0;
+    float inv_w1 = 1.0f / w1;
+    float inv_w2 = 1.0f / w2;
+
     for (int y = min_y; y <= max_y; y++)
     {
         for (int x = min_x; x <= max_x; x++)
@@ -241,8 +330,13 @@ void render_fill_triangle_z(
                 if (z >= g_zbuffer[idx])
                     continue;
 
+                // Fog calculation
+                float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
+                float w = 1.0f / interp_inv_w;
+                uint32_t final_color = apply_fog(color, w);
+
                 g_zbuffer[idx] = z;
-                g_framebuffer[idx] = color;
+                g_framebuffer[idx] = final_color;
             }
         }
     }
@@ -319,8 +413,14 @@ void render_fill_triangle_textured(
                 uint8_t g = (uint8_t)(((tex_color >> 8) & 0xFF) * light_intensity);
                 uint8_t b = (uint8_t)((tex_color & 0xFF) * light_intensity);
 
+                uint32_t lit_color = 0xFF000000 | (r << 16) | (g << 8) | b;
+                
+                // Fog
+                float w = 1.0f / interp_inv_w;
+                uint32_t final_color = apply_fog(lit_color, w);
+
                 g_zbuffer[idx] = z;
-                g_framebuffer[idx] = 0xFF000000 | (r << 16) | (g << 8) | b;
+                g_framebuffer[idx] = final_color;
             }
         }
     }

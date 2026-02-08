@@ -36,13 +36,7 @@
 static uint32_t framebuffer[RENDER_WIDTH * RENDER_HEIGHT];
 static float zbuffer[RENDER_WIDTH * RENDER_HEIGHT];
 
-static void framebuffer_clear(uint32_t color)
-{
-    for (int i = 0; i < RENDER_WIDTH * RENDER_HEIGHT; i++)
-    {
-        framebuffer[i] = color;
-    }
-}
+
 
 int main(int argc, char *argv[])
 {
@@ -99,6 +93,12 @@ int main(int argc, char *argv[])
 
     render_set_framebuffer(framebuffer);
     render_set_zbuffer(zbuffer);
+    
+    float fog_start = 50.0f;
+    float fog_end = 500.0f;
+    uint32_t fog_color = 0xFF808080;
+    render_set_fog(true, fog_start, fog_end, fog_color);
+    render_set_skybox(0xFF202050, 0xFF808080); // Dark blue to Grey gradient
 
     Scene scene;
     scene_init(&scene);
@@ -253,6 +253,7 @@ int main(int argc, char *argv[])
 
     bool frustum_culling = true;
     MenuState menu_state = MENU_MAIN;
+    bool mouse_down = false;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
     LOG_INFO("Entering main loop (WASD + Mouse, ESC=Pause, ~=Console)");
@@ -324,6 +325,11 @@ int main(int argc, char *argv[])
                 if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
                 {
                     menu_clicked = true;
+                    mouse_down = true;
+                }
+                else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT)
+                {
+                    mouse_down = false;
                 }
 
                 if (event.type == SDL_KEYDOWN)
@@ -588,7 +594,7 @@ int main(int argc, char *argv[])
             hovered_entity = -1;
         }
 
-        framebuffer_clear(COLOR_BLACK);
+        render_clear_gradient();
         render_clear_zbuffer();
 
         // Render chunked map geometry first (frustum-culled per chunk)
@@ -691,14 +697,22 @@ int main(int argc, char *argv[])
             int rmx = (int)(mx * ((float)RENDER_WIDTH / WINDOW_WIDTH));
             int rmy = (int)(my * ((float)RENDER_HEIGHT / WINDOW_HEIGHT));
 
+            bool fog_enabled;
+            render_get_fog(&fog_enabled, &fog_start, &fog_end, &fog_color);
+            
             MenuData menu_data;
             menu_data.backface_cull = &console.backface_cull;
             menu_data.frustum_cull = &frustum_culling;
             menu_data.wireframe = &console.wireframe;
             menu_data.debug_info = &console.show_debug;
             menu_data.draw_aabb = &debug_aabb;
+            menu_data.fog_end = &fog_end;
 
-            int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, &menu_state, &menu_data);
+            int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, mouse_down, &menu_state, &menu_data);
+            
+            // Apply fog changes
+            render_set_fog(fog_enabled, fog_start, fog_end, fog_color);
+            
             if (action == 1) // Resume
             {
                 game_state = GAME_STATE_PLAYING;

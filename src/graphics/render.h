@@ -16,16 +16,23 @@ void render_clear_zbuffer(void);
 // Pixel operations
 void render_set_pixel(int x, int y, uint32_t color);
 
+// Fog & Skybox
+void render_set_fog(bool enabled, float start, float end, uint32_t color);
+void render_get_fog(bool *enabled, float *start, float *end, uint32_t *color);
+void render_set_skybox(uint32_t top_color, uint32_t bottom_color);
+void render_get_skybox(uint32_t *top_color, uint32_t *bottom_color);
+void render_clear_gradient(void);
+
 // Drawing primitives
 void render_draw_line(int x0, int y0, int x1, int y1, uint32_t color);
 void render_draw_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
 void render_fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
 
-// Depth-aware triangle fill (with per-vertex Z values)
+// Depth-aware triangle fill (with per-vertex Z and W values)
 void render_fill_triangle_z(
-    int x0, int y0, float z0,
-    int x1, int y1, float z1,
-    int x2, int y2, float z2,
+    int x0, int y0, float z0, float w0,
+    int x1, int y1, float z1, float w1,
+    int x2, int y2, float z2, float w2,
     uint32_t color);
 
 // Textured triangle with perspective-correct UV interpolation

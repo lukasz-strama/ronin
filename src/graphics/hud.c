@@ -301,7 +301,74 @@ static bool hud_checkbox(const Font *font, int x, int y, int w, int h, const cha
     return hover && clicked;
 }
 
-int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, MenuState *state, MenuData *data)
+static bool hud_slider(const Font *font, int x, int y, int w, int h, const char *text, float *value, float min, float max, int mx, int my, bool mouse_down)
+{
+    bool hover = (mx >= x && mx < x + w && my >= y && my < y + h);
+    uint32_t bg_color = 0xFF222222;
+    uint32_t fill_color = 0xFF44AA44;
+    uint32_t empty_color = 0xFF444444;
+    uint32_t handle_color = hover ? 0xFFFFFFFF : 0xFFCCCCCC;
+    uint32_t text_col = hover ? 0xFFFFFFFF : 0xFFAAAAAA;
+    uint32_t border_col = 0xFF888888;
+
+    // Allow dragging if mouse is down while hovering
+    if (mouse_down && hover)
+    {
+        float t = (float)(mx - x) / (float)w;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        *value = min + t * (max - min);
+    }
+
+    // Text Label (Centered above)
+    int label_w = (int)strlen(text) * FONT_GLYPH_W;
+    int label_x = x + (w - label_w) / 2;
+    hud_draw_text(font, label_x, y - FONT_GLYPH_H - 4, text, text_col);
+
+    // Value Text (Top Right)
+    char val_buf[16];
+    snprintf(val_buf, sizeof(val_buf), "%.0f", *value);
+    int val_w = (int)strlen(val_buf) * FONT_GLYPH_W;
+    hud_draw_text(font, x + w - val_w, y - FONT_GLYPH_H - 4, val_buf, text_col);
+
+    // Background Container
+    hud_blit_rect(x, y, w, h, bg_color);
+    
+    // Border
+    for (int px = x; px < x + w; px++) { render_set_pixel(px, y, border_col); render_set_pixel(px, y + h - 1, border_col); }
+    for (int py = y; py < y + h; py++) { render_set_pixel(x, py, border_col); render_set_pixel(x + w - 1, py, border_col); }
+
+    // Bar visualization
+    int pad = 4;
+    int bar_x = x + pad;
+    int bar_y = y + h/2 - 2;
+    int bar_w = w - pad*2;
+    int bar_h = 4;
+    
+    float norm = (*value - min) / (max - min);
+    int fill_w = (int)(norm * bar_w);
+    
+    // Empty part
+    hud_blit_rect(bar_x, bar_y, bar_w, bar_h, empty_color);
+    // Filled part
+    hud_blit_rect(bar_x, bar_y, fill_w, bar_h, fill_color);
+
+    // Handle
+    int handle_w = 8;
+    int handle_h = h - 6;
+    int handle_x = bar_x + fill_w - handle_w / 2;
+    
+    // Clamp handle within bar area
+    if (handle_x < bar_x) handle_x = bar_x;
+    if (handle_x > bar_x + bar_w - handle_w) handle_x = bar_x + bar_w - handle_w;
+    
+    int handle_y = y + 3;
+    hud_blit_rect(handle_x, handle_y, handle_w, handle_h, handle_color);
+
+    return hover && mouse_down;
+}
+
+int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, MenuState *state, MenuData *data)
 {
     // Dim overlay
     for (int py = 0; py < RENDER_HEIGHT; py++)
@@ -364,8 +431,14 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, MenuStat
         hud_checkbox(font, ox, start_y, check_w, check_h, "Wireframe Mode", data->wireframe, mx, my, clicked);
         start_y += check_h + spacing;
 
-        hud_checkbox(font, ox, start_y, check_w, check_h, "Draw AABBs", data->draw_aabb, mx, my, clicked);
-        start_y += check_h + spacing;
+        if (data->fog_end)
+        {
+            start_y += 10; // Extra spacing BEFORE slider to clear previous checkbox
+            // Center the slider: cx - check_w / 2
+            int slider_x = cx - check_w / 2;
+            hud_slider(font, slider_x, start_y, check_w, check_h, "Fog Distance", data->fog_end, 50.0f, 1000.0f, mx, my, mouse_down);
+            start_y += check_h + spacing + 10;
+        }
 
         if (hud_button(font, cx - btn_w / 2, start_y + 10, btn_w, btn_h, "BACK", mx, my, clicked)) *state = MENU_SETTINGS;
     }

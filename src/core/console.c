@@ -452,6 +452,48 @@ void console_execute(Console *con, CommandContext *ctx)
         ctx->camera->fly_speed = spd;
         console_log(con, "Fly speed set to %.2f", spd);
     }
+    // --- fog <0/1> ---
+    else if (strcmp(tokens[0], "fog") == 0 && ntokens >= 2)
+    {
+        bool en = atoi(tokens[1]) != 0;
+        bool curr_en; float start, end; uint32_t color;
+        render_get_fog(&curr_en, &start, &end, &color);
+        render_set_fog(en, start, end, color);
+        console_log(con, "Fog: %s", en ? "ON" : "OFF");
+    }
+    // --- fog_dist <start> <end> ---
+    else if (strcmp(tokens[0], "fog_dist") == 0 && ntokens >= 3)
+    {
+        float start = (float)atof(tokens[1]);
+        float end = (float)atof(tokens[2]);
+        bool curr_en; float curr_start, curr_end; uint32_t color;
+        render_get_fog(&curr_en, &curr_start, &curr_end, &color);
+        render_set_fog(curr_en, start, end, color);
+        console_log(con, "Fog dist: %.1f - %.1f", start, end);
+    }
+    // --- fog_color <hex> ---
+    else if (strcmp(tokens[0], "fog_color") == 0 && ntokens >= 2)
+    {
+        uint32_t color = (uint32_t)strtoul(tokens[1], NULL, 16);
+        // Ensure alpha is fully opaque if user didn't provide it
+        if ((color & 0xFF000000) == 0) color |= 0xFF000000;
+        
+        bool curr_en; float start, end; uint32_t curr_color;
+        render_get_fog(&curr_en, &start, &end, &curr_color);
+        render_set_fog(curr_en, start, end, color);
+        console_log(con, "Fog color: %08X", color);
+    }
+    // --- skybox <top_hex> <bottom_hex> ---
+    else if (strcmp(tokens[0], "skybox") == 0 && ntokens >= 3)
+    {
+        uint32_t top = (uint32_t)strtoul(tokens[1], NULL, 16);
+        uint32_t bottom = (uint32_t)strtoul(tokens[2], NULL, 16);
+        if ((top & 0xFF000000) == 0) top |= 0xFF000000;
+        if ((bottom & 0xFF000000) == 0) bottom |= 0xFF000000;
+        
+        render_set_skybox(top, bottom);
+        console_log(con, "Skybox set");
+    }
     else
     {
         console_log(con, "Unknown command: %s", tokens[0]);

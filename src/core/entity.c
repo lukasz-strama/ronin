@@ -199,9 +199,9 @@ static void render_mesh_flat(const Entity *ent, Mat4 model, Mat4 vp,
             ProjectedVertex pv2 = render_project_vertex(poly.vertices[j + 1].position);
 
             render_fill_triangle_z(
-                (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
-                (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
-                (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
+                (int)pv0.screen.x, (int)pv0.screen.y, pv0.z, poly.vertices[0].position.w,
+                (int)pv1.screen.x, (int)pv1.screen.y, pv1.z, poly.vertices[j].position.w,
+                (int)pv2.screen.x, (int)pv2.screen.y, pv2.z, poly.vertices[j + 1].position.w,
                 poly.vertices[0].color);
             if (tri_drawn)
                 (*tri_drawn)++;
@@ -368,9 +368,9 @@ static void render_obj_flat(const Entity *ent, Mat4 model, Mat4 vp,
             ProjectedVertex pv2 = render_project_vertex(poly.vertices[j + 1].position);
 
             render_fill_triangle_z(
-                (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
-                (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
-                (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
+                (int)pv0.screen.x, (int)pv0.screen.y, pv0.z, poly.vertices[0].position.w,
+                (int)pv1.screen.x, (int)pv1.screen.y, pv1.z, poly.vertices[j].position.w,
+                (int)pv2.screen.x, (int)pv2.screen.y, pv2.z, poly.vertices[j + 1].position.w,
                 poly.vertices[0].color);
             if (tri_drawn)
                 (*tri_drawn)++;
