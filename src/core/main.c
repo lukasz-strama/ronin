@@ -17,6 +17,7 @@
 #include "core/console.h"
 #include "core/level.h"
 #include "core/collision_grid.h"
+#include "core/chunk.h"
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
@@ -169,7 +170,7 @@ int main(int argc, char *argv[])
 
     // Camera & Colliders
     float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
-    Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 100.0f);
+    Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 10000.0f);
 
     Camera camera;
     camera_init(&camera, (Vec3){0, 2, 0}, 0.0f, 0.0f);
@@ -213,6 +214,7 @@ int main(int argc, char *argv[])
     int selected_entity = -1;
     static OBJMesh loaded_map = {0};
     static CollisionGrid collision_grid = {0};
+    static ChunkGrid chunk_grid = {0};
     static char current_map_path[256] = {0};
 
     CommandContext cmd_ctx;
@@ -222,6 +224,7 @@ int main(int argc, char *argv[])
     cmd_ctx.cube_mesh = &cube_mesh;
     cmd_ctx.loaded_map = &loaded_map;
     cmd_ctx.collision_grid = &collision_grid;
+    cmd_ctx.chunk_grid = &chunk_grid;
     cmd_ctx.current_map_path = current_map_path;
     cmd_ctx.running = &running;
     cmd_ctx.console = &console;
@@ -553,6 +556,22 @@ int main(int argc, char *argv[])
         framebuffer_clear(COLOR_BLACK);
         render_clear_zbuffer();
 
+        // Render chunked map geometry first (frustum-culled per chunk)
+        if (chunk_grid.count > 0)
+        {
+            render_stats.chunks_total = chunk_grid.count;
+            if (console.wireframe)
+                chunk_grid_render_wireframe(&chunk_grid, vp, camera.position,
+                                            &frustum, console.backface_cull,
+                                            &render_stats);
+            else
+                chunk_grid_render(&chunk_grid, vp, camera.position, light_dir,
+                                  &frustum, console.backface_cull,
+                                  &render_stats);
+            render_stats.chunks_culled = render_stats.entities_culled;
+            render_stats.entities_culled = 0;
+        }
+
         if (console.wireframe)
             scene_render_wireframe(&scene, vp, camera.position,
                                    &frustum, console.backface_cull,
@@ -644,6 +663,8 @@ int main(int argc, char *argv[])
 
     LOG_INFO("Shutting down...");
 
+    chunk_grid_free(&chunk_grid);
+    grid_free(&collision_grid);
     obj_mesh_free(&teapot);
     hud_font_free(&hud_font);
     texture_free(&floor_tex);

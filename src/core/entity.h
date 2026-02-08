@@ -40,6 +40,7 @@ typedef struct
     float uv_scale;
     bool active;
     bool pickable;
+    bool chunked; // Rendered via chunk grid, skipped by scene_render
     float hit_timer;
 } Entity;
 
@@ -52,6 +53,8 @@ typedef struct
 typedef struct RenderStats
 {
     int entities_culled; // Frustum-culled entities
+    int chunks_culled;   // Frustum-culled chunks
+    int chunks_total;    // Total chunks tested
     int backface_culled; // Triangles discarded by backface test
     int triangles_drawn; // Triangles sent to rasterizer
     int clip_trivial;    // Triangles that skipped clipping (trivial accept)

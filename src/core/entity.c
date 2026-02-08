@@ -33,6 +33,7 @@ int scene_add_mesh(Scene *scene, Mesh *mesh, Vec3 position, float scale)
     ent->uv_scale = 1.0f;
     ent->active = true;
     ent->pickable = true;
+    ent->chunked = false;
     ent->hit_timer = 0;
 
     return idx;
@@ -60,6 +61,7 @@ int scene_add_obj(Scene *scene, OBJMesh *obj, Vec3 position, float scale)
     ent->uv_scale = 1.0f;
     ent->active = true;
     ent->pickable = true;
+    ent->chunked = false;
     ent->hit_timer = 0;
 
     return idx;
@@ -390,6 +392,8 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir,
         Entity *ent = &scene->entities[i];
         if (!ent->active)
             continue;
+        if (ent->chunked)
+            continue;
 
         // Frustum culling via bounding sphere
         if (frustum)
@@ -428,10 +432,10 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir,
 
     if (stats_out)
     {
-        stats_out->entities_culled = culled;
-        stats_out->backface_culled = bf_culled;
-        stats_out->triangles_drawn = tri_drawn;
-        stats_out->clip_trivial = clip_triv;
+        stats_out->entities_culled += culled;
+        stats_out->backface_culled += bf_culled;
+        stats_out->triangles_drawn += tri_drawn;
+        stats_out->clip_trivial += clip_triv;
     }
 }
 
@@ -448,6 +452,8 @@ void scene_render_wireframe(Scene *scene, Mat4 vp, Vec3 camera_pos,
     {
         Entity *ent = &scene->entities[i];
         if (!ent->active)
+            continue;
+        if (ent->chunked)
             continue;
 
         // Frustum culling via bounding sphere
@@ -570,10 +576,10 @@ void scene_render_wireframe(Scene *scene, Mat4 vp, Vec3 camera_pos,
 
     if (stats_out)
     {
-        stats_out->entities_culled = culled;
-        stats_out->backface_culled = bf_culled;
-        stats_out->triangles_drawn = tri_drawn;
-        stats_out->clip_trivial = clip_triv;
+        stats_out->entities_culled += culled;
+        stats_out->backface_culled += bf_culled;
+        stats_out->triangles_drawn += tri_drawn;
+        stats_out->clip_trivial += clip_triv;
     }
 }
 

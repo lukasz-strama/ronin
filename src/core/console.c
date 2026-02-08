@@ -323,6 +323,7 @@ void console_execute(Console *con, CommandContext *ctx)
             if (level_load(tokens[1], ctx->scene, ctx->camera,
                            ctx->teapot, ctx->cube_mesh,
                            ctx->loaded_map, ctx->collision_grid,
+                           ctx->chunk_grid,
                            ctx->current_map_path) == 0)
                 console_log(con, "Loaded level: %s", tokens[1]);
             else
@@ -332,7 +333,8 @@ void console_execute(Console *con, CommandContext *ctx)
         {
             // Call load_map logic
             if (level_load_map(tokens[1], ctx->scene, ctx->camera,
-                               ctx->loaded_map, ctx->collision_grid) == 0)
+                               ctx->loaded_map, ctx->collision_grid,
+                               ctx->chunk_grid) == 0)
             {
                 if (ctx->current_map_path)
                 {
@@ -355,6 +357,7 @@ void console_execute(Console *con, CommandContext *ctx)
         if (level_load(tokens[1], ctx->scene, ctx->camera,
                        ctx->teapot, ctx->cube_mesh,
                        ctx->loaded_map, ctx->collision_grid,
+                       ctx->chunk_grid,
                        ctx->current_map_path) == 0)
         {
             console_log(con, "Loaded: %s", tokens[1]);
@@ -387,7 +390,8 @@ void console_execute(Console *con, CommandContext *ctx)
             console_log(con, "ERROR: Use 'load_level' for .lvl files!");
         }
         else if (level_load_map(tokens[1], ctx->scene, ctx->camera,
-                                ctx->loaded_map, ctx->collision_grid) == 0)
+                                ctx->loaded_map, ctx->collision_grid,
+                                ctx->chunk_grid) == 0)
         {
             // Track the loaded map path for save
             if (ctx->current_map_path)

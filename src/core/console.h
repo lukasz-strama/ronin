@@ -7,6 +7,7 @@
 #include "core/camera.h"
 #include "core/obj_loader.h"
 #include "core/collision_grid.h"
+#include "core/chunk.h"
 #include "graphics/mesh.h"
 
 typedef enum
@@ -51,6 +52,7 @@ typedef struct
     Mesh *cube_mesh;
     OBJMesh *loaded_map;
     CollisionGrid *collision_grid;
+    ChunkGrid *chunk_grid;
     char *current_map_path;
     bool *running;
     Console *console;

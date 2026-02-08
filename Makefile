@@ -17,6 +17,7 @@ SRC     = src/core/main.c \
           src/core/console.c \
           src/core/level.c \
           src/core/collision_grid.c \
+          src/core/chunk.c \
           src/math/math.c \
           src/graphics/render.c \
           src/graphics/mesh.c \
