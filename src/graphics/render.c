@@ -38,19 +38,6 @@ void render_set_pixel(int x, int y, uint32_t color)
     }
 }
 
-static void render_set_pixel_z(int x, int y, float z, uint32_t color)
-{
-    if (x >= 0 && x < RENDER_WIDTH && y >= 0 && y < RENDER_HEIGHT)
-    {
-        int idx = y * RENDER_WIDTH + x;
-        if (z < g_zbuffer[idx])
-        {
-            g_zbuffer[idx] = z;
-            g_framebuffer[idx] = color;
-        }
-    }
-}
-
 // Bresenham's line algorithm
 void render_draw_line(int x0, int y0, int x1, int y1, uint32_t color)
 {
@@ -237,19 +224,25 @@ void render_fill_triangle_z(
     {
         for (int x = min_x; x <= max_x; x++)
         {
-            float w0 = edge_func(x1, y1, x2, y2, x, y);
-            float w1 = edge_func(x2, y2, x0, y0, x, y);
-            float w2 = edge_func(x0, y0, x1, y1, x, y);
+            float bary0 = edge_func(x1, y1, x2, y2, x, y);
+            float bary1 = edge_func(x2, y2, x0, y0, x, y);
+            float bary2 = edge_func(x0, y0, x1, y1, x, y);
 
-            // Check if point is inside triangle
-            if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0))
+            if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) ||
+                (bary0 <= 0 && bary1 <= 0 && bary2 <= 0))
             {
-                w0 /= area;
-                w1 /= area;
-                w2 /= area;
+                bary0 /= area;
+                bary1 /= area;
+                bary2 /= area;
 
-                float z = w0 * z0 + w1 * z1 + w2 * z2;
-                render_set_pixel_z(x, y, z, color);
+                // Early Z-rejection: compute depth first, skip pixel if occluded
+                float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
+                int idx = y * RENDER_WIDTH + x;
+                if (z >= g_zbuffer[idx])
+                    continue;
+
+                g_zbuffer[idx] = z;
+                g_framebuffer[idx] = color;
             }
         }
     }
@@ -303,13 +296,17 @@ void render_fill_triangle_textured(
             if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) ||
                 (bary0 <= 0 && bary1 <= 0 && bary2 <= 0))
             {
-
                 bary0 /= area;
                 bary1 /= area;
                 bary2 /= area;
 
+                // Early Z-rejection: compute depth first, skip pixel if occluded
                 float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
+                int idx = y * RENDER_WIDTH + x;
+                if (z >= g_zbuffer[idx])
+                    continue;
 
+                // Pixel passed depth test — now do the expensive work
                 float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
                 float interp_u_over_w = bary0 * u0_over_w + bary1 * u1_over_w + bary2 * u2_over_w;
                 float interp_v_over_w = bary0 * v0_over_w + bary1 * v1_over_w + bary2 * v2_over_w;
@@ -321,9 +318,9 @@ void render_fill_triangle_textured(
                 uint8_t r = (uint8_t)(((tex_color >> 16) & 0xFF) * light_intensity);
                 uint8_t g = (uint8_t)(((tex_color >> 8) & 0xFF) * light_intensity);
                 uint8_t b = (uint8_t)((tex_color & 0xFF) * light_intensity);
-                uint32_t final_color = 0xFF000000 | (r << 16) | (g << 8) | b;
 
-                render_set_pixel_z(x, y, z, final_color);
+                g_zbuffer[idx] = z;
+                g_framebuffer[idx] = 0xFF000000 | (r << 16) | (g << 8) | b;
             }
         }
     }
