@@ -6,6 +6,8 @@ This software implements a complete 3D graphics pipeline from scratch, utilizing
 |:------------------------:|:-------------------------:|
 | ![Teapot Demo (GIF)](docs/demo_teapot.gif) | ![Ray Trace Demo (GIF)](docs/demo_raytrace.gif) |
 
+*Note: Those demos are propably outdated right now. The engine is in active development and the codebase is subject to frequent changes. I can't be bothered to update them for now.*
+
 ## Features
 
 ### Core Architecture
