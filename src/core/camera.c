@@ -11,6 +11,8 @@ void camera_init(Camera *cam, Vec3 position, float yaw, float pitch)
     cam->position = position;
     cam->yaw = yaw;
     cam->pitch = pitch;
+    cam->velocity_y = 0.0f;
+    cam->grounded = false;
     cam->collider_count = 0;
     cam->fly_mode = false;
     cam->map_grid = NULL;
@@ -157,3 +159,91 @@ bool camera_try_move(Camera *cam, Vec3 delta)
     return !blocked;
 }
 
+void camera_apply_gravity(Camera *cam, float dt)
+{
+    if (cam->fly_mode)
+        return;
+
+    // Apply gravity
+    cam->velocity_y -= GRAVITY * dt;
+
+    // Clamp terminal velocity
+    if (cam->velocity_y < -30.0f)
+        cam->velocity_y = -30.0f;
+
+    // Calculate vertical movement
+    float dy = cam->velocity_y * dt;
+    Vec3 half = {CAMERA_HALF_W, CAMERA_HALF_H, CAMERA_HALF_D};
+
+    // Test new Y position
+    Vec3 test_pos = cam->position;
+    test_pos.y += dy;
+
+    bool hit_floor = false;
+    bool hit_ceiling = false;
+
+    // Check map grid collision for vertical movement
+    if (cam->map_grid)
+    {
+        AABB test_box = aabb_from_center_size(test_pos, half);
+        Vec3 push;
+        if (grid_check_aabb(cam->map_grid, test_box, &push))
+        {
+            test_pos = vec3_add(test_pos, push);
+            // Determine if floor or ceiling hit based on push direction
+            if (push.y > 0.01f)
+                hit_floor = true;
+            else if (push.y < -0.01f)
+                hit_ceiling = true;
+        }
+    }
+
+    // Fallback floor constraint when no map grid
+    if (!cam->map_grid && test_pos.y < CAMERA_EYE_HEIGHT)
+    {
+        test_pos.y = CAMERA_EYE_HEIGHT;
+        hit_floor = true;
+    }
+
+    // Ground detection: cast a small box below feet
+    if (!hit_floor && cam->map_grid)
+    {
+        Vec3 feet_pos = cam->position;
+        feet_pos.y -= CAMERA_HALF_H + 0.05f;
+        Vec3 probe_half = {CAMERA_HALF_W * 0.8f, 0.05f, CAMERA_HALF_D * 0.8f};
+        AABB probe = aabb_from_center_size(feet_pos, probe_half);
+        Vec3 push;
+        if (grid_check_aabb(cam->map_grid, probe, &push))
+            hit_floor = true;
+    }
+
+    // Update grounded state
+    if (hit_floor && cam->velocity_y <= 0)
+    {
+        cam->grounded = true;
+        cam->velocity_y = 0.0f;
+    }
+    else if (hit_ceiling && cam->velocity_y > 0)
+    {
+        cam->velocity_y = 0.0f;
+    }
+    else
+    {
+        cam->grounded = false;
+    }
+
+    cam->position = test_pos;
+}
+
+void camera_jump(Camera *cam)
+{
+    if (cam->fly_mode)
+        return;
+
+    if (cam->grounded)
+    {
+        cam->velocity_y = JUMP_VELOCITY;
+        cam->grounded = false;
+        LOG_INFO("Jump!");
+    }
+}

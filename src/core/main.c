@@ -231,6 +231,7 @@ int main(int argc, char *argv[])
     Uint32 prev_time = SDL_GetTicks();
 
     bool key_w = false, key_s = false, key_a = false, key_d = false;
+    bool key_space = false;
     bool debug_aabb = false;
     bool shoot_requested = false;
     bool select_requested = false;
@@ -356,6 +357,9 @@ int main(int argc, char *argv[])
                 case SDLK_b:
                     debug_aabb = !debug_aabb;
                     break;
+                case SDLK_SPACE:
+                    key_space = true;
+                    break;
                 }
             }
             if (event.type == SDL_KEYUP)
@@ -373,6 +377,9 @@ int main(int argc, char *argv[])
                     break;
                 case SDLK_d:
                     key_d = false;
+                    break;
+                case SDLK_SPACE:
+                    key_space = false;
                     break;
                 }
             }
@@ -407,6 +414,11 @@ int main(int argc, char *argv[])
 
             if (move_delta.x != 0 || move_delta.y != 0 || move_delta.z != 0)
                 camera_try_move(&camera, move_delta);
+
+            // Apply gravity and handle jumping
+            camera_apply_gravity(&camera, dt);
+            if (key_space)
+                camera_jump(&camera);
 
             scene_update(&scene, dt);
 

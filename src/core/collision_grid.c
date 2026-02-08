@@ -136,8 +136,9 @@ static bool ranges_overlap(float amin, float amax, float bmin, float bmax) {
     return amin <= bmax && bmin <= amax;
 }
 
-// Full SAT triangle-AABB intersection test
-static bool triangle_aabb_intersect(Vec3 v0, Vec3 v1, Vec3 v2, AABB box) {
+
+// Full SAT triangle-AABB intersection test with MTV (Minimum Translation Vector)
+static bool triangle_aabb_mtv(Vec3 v0, Vec3 v1, Vec3 v2, AABB box, Vec3 *out_mtv) {
     // Translate triangle to AABB center
     Vec3 center = {
         (box.min.x + box.max.x) * 0.5f,
@@ -159,6 +160,9 @@ static bool triangle_aabb_intersect(Vec3 v0, Vec3 v1, Vec3 v2, AABB box) {
     Vec3 e1 = vec3_sub(v2, v1);
     Vec3 e2 = vec3_sub(v0, v2);
 
+    float min_overlap = FLT_MAX;
+    Vec3 best_axis = {0, 0, 0};
+
     // Test 9 cross products
     Vec3 axes[3] = {{1,0,0}, {0,1,0}, {0,0,1}};
     Vec3 edges[3] = {e0, e1, e2};
@@ -170,26 +174,79 @@ static bool triangle_aabb_intersect(Vec3 v0, Vec3 v1, Vec3 v2, AABB box) {
             if (len < 0.0001f) continue;
             axis = vec3_normalize(axis);
 
-            float t_min, t_max, b_min, b_max;
+            float t_min, t_max;
             project_triangle(v0, v1, v2, axis, &t_min, &t_max);
             float r = half.x * fabsf(axis.x) + half.y * fabsf(axis.y) + half.z * fabsf(axis.z);
-            b_min = -r; b_max = r;
+            float b_min = -r, b_max = r;
 
-            if (!ranges_overlap(t_min, t_max, b_min, b_max))
-                return false;
+            if (!ranges_overlap(t_min, t_max, b_min, b_max)) return false;
+
+            // Calculate overlap
+            float o1 = b_max - t_min;
+            float o2 = t_max - b_min;
+            float overlap = fminf(o1, o2);
+            if (overlap < min_overlap) {
+                min_overlap = overlap;
+                best_axis = axis;
+                // Correct direction to push box OUT of triangle
+                // We want axis to point from triangle TO box
+                // Center of box is 0,0,0 here. Triangle center approx via vertices.
+                if (vec3_dot(axis, v0) > 0) best_axis = vec3_mul(best_axis, -1.0f);
+            }
         }
     }
 
-    // Test AABB face normals
-    if (fmaxf(v0.x, fmaxf(v1.x, v2.x)) < -half.x || fminf(v0.x, fminf(v1.x, v2.x)) > half.x) return false;
-    if (fmaxf(v0.y, fmaxf(v1.y, v2.y)) < -half.y || fminf(v0.y, fminf(v1.y, v2.y)) > half.y) return false;
-    if (fmaxf(v0.z, fmaxf(v1.z, v2.z)) < -half.z || fminf(v0.z, fminf(v1.z, v2.z)) > half.z) return false;
+    // Test AABB face normals (Box axes)
+    for (int i=0; i<3; i++) {
+        Vec3 axis = axes[i];
+        float t_min, t_max;
+        project_triangle(v0, v1, v2, axis, &t_min, &t_max);
+        float r = (i==0 ? half.x : (i==1 ? half.y : half.z));
+        float b_min = -r, b_max = r;
+
+        if (!ranges_overlap(t_min, t_max, b_min, b_max)) return false;
+
+        float o1 = b_max - t_min;
+        float o2 = t_max - b_min;
+        float overlap = fminf(o1, o2);
+        if (overlap < min_overlap) {
+            min_overlap = overlap;
+            best_axis = axis;
+            if (vec3_dot(axis, v0) > 0) best_axis = vec3_mul(best_axis, -1.0f);
+        }
+    }
 
     // Test triangle normal
     Vec3 normal = vec3_cross(e0, e1);
-    float d = vec3_dot(normal, v0);
-    float r = half.x * fabsf(normal.x) + half.y * fabsf(normal.y) + half.z * fabsf(normal.z);
-    if (fabsf(d) > r) return false;
+    if (vec3_length(normal) > 0.0001f) {
+        normal = vec3_normalize(normal);
+        float d = vec3_dot(normal, v0); // Distance of plane from center
+        float r = half.x * fabsf(normal.x) + half.y * fabsf(normal.y) + half.z * fabsf(normal.z);
+        // Box projection on normal is [-r, r]
+        // Triangle projection is [d, d]
+        
+        if (!ranges_overlap(d, d, -r, r)) return false;
+
+        float o1 = r - d;
+        float o2 = d - -r;
+        float overlap = fminf(o1, o2);
+        if (overlap < min_overlap) {
+            min_overlap = overlap;
+            best_axis = normal;
+            // Ensure push is away from triangle plane
+            // Triangle is at distance d. Box is at 0.
+            if (d > 0) best_axis = vec3_mul(best_axis, -1.0f);
+        }
+    }
+
+    if (min_overlap < FLT_MAX && out_mtv) {
+        *out_mtv = vec3_mul(best_axis, min_overlap);
+        // Safety: Ensure we push somewhat up if it's a floor collision
+        if (best_axis.y > 0.7f) {
+             // It's a floor, ensure we push UP
+             if (out_mtv->y < 0) *out_mtv = vec3_mul(*out_mtv, -1.0f);
+        }
+    }
 
     return true;
 }
@@ -234,37 +291,25 @@ bool grid_check_aabb(const CollisionGrid *grid, AABB box, Vec3 *push_out) {
                     Vec3 v0, v1, v2;
                     get_triangle_verts(grid->mesh, tri_idx, &v0, &v1, &v2);
 
-                    if (triangle_aabb_intersect(v0, v1, v2, box)) {
+                    Vec3 mtv;
+                    if (triangle_aabb_mtv(v0, v1, v2, box, &mtv)) {
                         hit = true;
 
-                        // Calculate triangle normal
+                        // Calculate triangle normal for slope check
                         Vec3 e1 = vec3_sub(v1, v0);
                         Vec3 e2 = vec3_sub(v2, v0);
                         Vec3 n = vec3_normalize(vec3_cross(e1, e2));
-
-                        // Prefer upward-facing normals (floors) for stability
                         float up_dot = n.y;
+
+                        // Prefer pushing OUT of floors (upward normal)
                         if (up_dot > best_dot) {
                             best_dot = up_dot;
-
-                            // Calculate push distance (how far to move out)
-                            // Use triangle centroid to box center distance
-                            Vec3 tri_center = {
-                                (v0.x + v1.x + v2.x) / 3.0f,
-                                (v0.y + v1.y + v2.y) / 3.0f,
-                                (v0.z + v1.z + v2.z) / 3.0f
-                            };
-
-                            // Push amount based on AABB half-height for floors
-                            float push_dist = 0.15f;
-                            if (up_dot > 0.7f) {
-                                // Floor - push up more aggressively
-                                push_dist = box_center.y - tri_center.y + 0.1f;
-                                if (push_dist < 0.1f) push_dist = 0.1f;
-                                if (push_dist > 0.5f) push_dist = 0.5f;
+                            best_push = mtv;
+                            
+                            // Extra epsilon for stability on floors
+                            if (up_dot > 0.7f && best_push.y > 0) {
+                                best_push.y += 0.001f;
                             }
-
-                            best_push = vec3_mul(n, push_dist);
                         }
                     }
                 }

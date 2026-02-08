@@ -10,12 +10,16 @@ struct CollisionGrid;
 #define CAMERA_SENSITIVITY 0.002f
 #define CAMERA_PITCH_LIMIT 1.55f // ~89 degrees
 
-// Camera collision box (half-extents)
+// Player collision box (half-extents): 0.6 x 1.8 x 0.6 (taller than standard cube)
 #define CAMERA_HALF_W 0.3f
-#define CAMERA_HALF_H 1.0f
+#define CAMERA_HALF_H 0.9f
 #define CAMERA_HALF_D 0.3f
 
-// Floor constraint
+// Physics constants
+#define GRAVITY         15.0f
+#define JUMP_VELOCITY   7.0f
+
+// Floor constraint (legacy fallback when no map grid)
 #define CAMERA_EYE_HEIGHT 2.0f
 
 #define MAX_COLLIDERS 16
@@ -27,6 +31,10 @@ typedef struct
     Vec3 right;     // Right vector (computed)
     float yaw;      // Horizontal rotation (radians)
     float pitch;    // Vertical rotation (radians)
+
+    // Vertical physics
+    float velocity_y;
+    bool grounded;
 
     // Collision world
     AABB colliders[MAX_COLLIDERS];
@@ -48,5 +56,9 @@ Mat4 camera_get_view_matrix(Camera *cam);
 void camera_add_collider(Camera *cam, AABB box);
 AABB camera_get_aabb(Camera *cam);
 bool camera_try_move(Camera *cam, Vec3 delta);
+
+// Physics
+void camera_apply_gravity(Camera *cam, float dt);
+void camera_jump(Camera *cam);
 
 #endif

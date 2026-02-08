@@ -175,9 +175,11 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, " toggle aabb          - bounding box");
         console_log(con, " toggle rays          - ray debug vis");
         console_log(con, " deselect             - clear selection");
-        console_log(con, " load_level <file>    - load level");
-        console_log(con, " save_level <file>    - save level");
-        console_log(con, " load_map <obj>       - load map obj");
+        console_log(con, " deselect             - clear selection");
+        console_log(con, " load <file>          - load level/map");
+        console_log(con, " load_level <file>    - load level (.lvl)");
+        console_log(con, " save_level <file>    - save level (.lvl)");
+        console_log(con, " load_map <obj>       - load map (.obj)");
         console_log(con, " move <#|sel> x y z   - move entity");
         console_log(con, " fly                  - toggle fly");
         console_log(con, " resume               - back to game");
@@ -266,6 +268,41 @@ void console_execute(Console *con, CommandContext *ctx)
             *ctx->selected_entity = -1;
         console_log(con, "Selection cleared");
     }
+    // --- load <filename> ---
+    else if (strcmp(tokens[0], "load") == 0 && ntokens >= 2)
+    {
+        char *ext = strrchr(tokens[1], '.');
+        if (ext && strcmp(ext, ".lvl") == 0)
+        {
+            // Call load_level logic
+            if (level_load(tokens[1], ctx->scene, ctx->camera,
+                           ctx->teapot, ctx->cube_mesh,
+                           ctx->loaded_map, ctx->collision_grid,
+                           ctx->current_map_path) == 0)
+                console_log(con, "Loaded level: %s", tokens[1]);
+            else
+                console_log(con, "ERROR loading level: %s", tokens[1]);
+        }
+        else if (ext && strcmp(ext, ".obj") == 0)
+        {
+            // Call load_map logic
+            if (level_load_map(tokens[1], ctx->scene, ctx->camera,
+                               ctx->loaded_map, ctx->collision_grid) == 0)
+            {
+                if (ctx->current_map_path) {
+                    strncpy(ctx->current_map_path, tokens[1], 255);
+                    ctx->current_map_path[255] = '\0';
+                }
+                console_log(con, "Loaded map: %s", tokens[1]);
+            }
+            else
+                console_log(con, "ERROR loading map: %s", tokens[1]);
+        }
+        else
+        {
+            console_log(con, "Unknown file type: %s (use .lvl or .obj)", tokens[1]);
+        }
+    }
     // --- load_level <filename> ---
     else if (strcmp(tokens[0], "load_level") == 0 && ntokens >= 2)
     {
@@ -297,7 +334,12 @@ void console_execute(Console *con, CommandContext *ctx)
     // --- load_map <obj_path> ---
     else if (strcmp(tokens[0], "load_map") == 0 && ntokens >= 2)
     {
-        if (level_load_map(tokens[1], ctx->scene, ctx->camera,
+        // Warn if loading .lvl with load_map
+        char *ext = strrchr(tokens[1], '.');
+        if (ext && strcmp(ext, ".lvl") == 0) {
+            console_log(con, "ERROR: Use 'load_level' for .lvl files!");
+        }
+        else if (level_load_map(tokens[1], ctx->scene, ctx->camera,
                            ctx->loaded_map, ctx->collision_grid) == 0)
         {
             // Track the loaded map path for save
