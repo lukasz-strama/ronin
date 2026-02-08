@@ -89,51 +89,49 @@ AABB camera_get_aabb(Camera *cam)
 
 bool camera_try_move(Camera *cam, Vec3 delta)
 {
-    Vec3 new_pos = vec3_add(cam->position, delta);
+    Vec3 half = {CAMERA_HALF_W, CAMERA_HALF_H, CAMERA_HALF_D};
+    Vec3 new_pos = cam->position;
+    bool blocked = false;
+
+    // Iterative step: move X, check collision
+    Vec3 test_x = {cam->position.x + delta.x, cam->position.y, cam->position.z};
+    AABB box_x = aabb_from_center_size(test_x, half);
+    bool blocked_x = false;
+    for (int i = 0; i < cam->collider_count; i++)
+    {
+        if (aabb_overlap(box_x, cam->colliders[i]))
+        {
+            blocked_x = true;
+            break;
+        }
+    }
+    if (!blocked_x)
+        new_pos.x = test_x.x;
+    else
+        blocked = true;
+
+    // Iterative step: move Z, check collision
+    Vec3 test_z = {new_pos.x, cam->position.y, cam->position.z + delta.z};
+    AABB box_z = aabb_from_center_size(test_z, half);
+    bool blocked_z = false;
+    for (int i = 0; i < cam->collider_count; i++)
+    {
+        if (aabb_overlap(box_z, cam->colliders[i]))
+        {
+            blocked_z = true;
+            break;
+        }
+    }
+    if (!blocked_z)
+        new_pos.z = test_z.z;
+    else
+        blocked = true;
 
     // Floor constraint
     if (new_pos.y < CAMERA_EYE_HEIGHT)
         new_pos.y = CAMERA_EYE_HEIGHT;
 
-    Vec3 half = {CAMERA_HALF_W, CAMERA_HALF_H, CAMERA_HALF_D};
-    AABB new_box = aabb_from_center_size(new_pos, half);
-
-    for (int i = 0; i < cam->collider_count; i++)
-    {
-        if (aabb_overlap(new_box, cam->colliders[i]))
-        {
-            // Slide: try each axis independently
-            Vec3 slide_x = {cam->position.x + delta.x, cam->position.y, cam->position.z};
-            Vec3 slide_z = {cam->position.x, cam->position.y, cam->position.z + delta.z};
-
-            AABB box_x = aabb_from_center_size(slide_x, half);
-            AABB box_z = aabb_from_center_size(slide_z, half);
-
-            bool blocked_x = false;
-            bool blocked_z = false;
-
-            for (int j = 0; j < cam->collider_count; j++)
-            {
-                if (aabb_overlap(box_x, cam->colliders[j]))
-                    blocked_x = true;
-                if (aabb_overlap(box_z, cam->colliders[j]))
-                    blocked_z = true;
-            }
-
-            if (!blocked_x)
-            {
-                cam->position.x = slide_x.x;
-            }
-            if (!blocked_z)
-            {
-                cam->position.z = slide_z.z;
-            }
-            if (cam->position.y < CAMERA_EYE_HEIGHT)
-                cam->position.y = CAMERA_EYE_HEIGHT;
-            return false;
-        }
-    }
-
     cam->position = new_pos;
-    return true;
+    return !blocked;
 }
+
