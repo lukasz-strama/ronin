@@ -75,9 +75,6 @@ void console_log(Console *con, const char *fmt, ...)
     con->scroll_offset = 0;
 }
 
-// Calculate visible lines based on height, margin, input line, and font size
-// (CON_HEIGHT - FONT_GLYPH_H - pad * 3) / (FONT_GLYPH_H + 1)
-// 120 - 8 - 12 = 100. 100 / 9 = 11.
 #define CON_PAD 4
 #define CON_MAX_VISIBLE ((CON_HEIGHT - FONT_GLYPH_H - CON_PAD * 3) / (FONT_GLYPH_H + 1))
 
@@ -86,10 +83,6 @@ void console_scroll(Console *con, int delta)
     con->scroll_offset += delta;
     if (con->scroll_offset < 0)
         con->scroll_offset = 0;
-
-    // Strict clamping: prevent scrolling past the top (start index 0)
-    // We want: log_count - offset >= min(log_count, CON_MAX_VISIBLE)
-    // So: offset <= log_count - min(log_count, CON_MAX_VISIBLE)
 
     int min_visible = con->log_count < CON_MAX_VISIBLE ? con->log_count : CON_MAX_VISIBLE;
     int max_offset = con->log_count - min_visible;
@@ -137,8 +130,6 @@ void console_draw(const Console *con, const Font *font)
     if (start_index < 0)
         start_index = 0;
 
-    // DEBUG: Only print when scroll offset changes (pseudo-debounced) or just once per second?
-    // Using static variable to spam less
     static int last_offset = -1;
     if (con->scroll_offset != last_offset)
     {
@@ -211,18 +202,18 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, "Commands:");
         console_log(con, " help               - show this");
         console_log(con, " spawn teapot       - add teapot");
+        console_log(con, " move <#|sel> x y z - move entity");
+        console_log(con, " deselect           - clear sel");
+        console_log(con, " fly                - toggle fly");
         console_log(con, " fly_speed <N>      - fly speed");
-        console_log(con, " set speed <N>      - rotation spd");
+        console_log(con, " set speed <N>      - game speed");
         console_log(con, " toggle wireframe   - wireframe");
         console_log(con, " toggle backface    - backface cull");
         console_log(con, " toggle aabb        - bounding box");
         console_log(con, " toggle rays        - ray debug vis");
         console_log(con, " toggle debug       - toggle HUD");
-        console_log(con, " deselect           - clear sel");
         console_log(con, " load <file>        - load level/map");
         console_log(con, " save_level <file>  - save (.lvl)");
-        console_log(con, " move <#|sel> x y z - move entity");
-        console_log(con, " fly                - toggle fly");
         console_log(con, " resume             - back to game");
         console_log(con, " quit               - exit");
     }
