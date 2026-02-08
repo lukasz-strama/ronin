@@ -298,9 +298,11 @@ void console_execute(Console *con, CommandContext *ctx)
     else if (strcmp(tokens[0], "toggle") == 0 && ntokens >= 2 &&
              strcmp(tokens[1], "aabb") == 0)
     {
-        // Signal handled via return; main reads console.wireframe-like flag
-        // Reuse a simple approach: log and let main handle via a flag
-        console_log(con, "Use 'B' key to toggle AABB");
+        if (ctx->debug_aabb)
+        {
+            *ctx->debug_aabb = !(*ctx->debug_aabb);
+            console_log(con, "AABB debug: %s", *ctx->debug_aabb ? "ON" : "OFF");
+        }
     }
     // --- toggle rays ---
     else if (strcmp(tokens[0], "toggle") == 0 && ntokens >= 2 &&

@@ -31,8 +31,28 @@ void hud_draw_text(const Font *font, int x, int y, const char *text, uint32_t co
 // UI elements
 void hud_draw_crosshair(uint32_t color);
 void hud_draw_fps(const Font *font, float dt);
-// Returns: 0=None, 1=Resume, 2=Console, 3=Quit
-int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked);
+// Menu States
+typedef enum
+{
+    MENU_MAIN = 0,
+    MENU_SETTINGS,
+    MENU_SETTINGS_GRAPHICS,
+    MENU_SETTINGS_AUDIO,
+    MENU_SETTINGS_GAMEPLAY
+} MenuState;
+
+typedef struct
+{
+    // Graphics Settings
+    bool *backface_cull;
+    bool *frustum_cull;
+    bool *wireframe;
+    bool *debug_info;
+    bool *draw_aabb;
+} MenuData;
+
+// Returns: 0=None, 1=Resume, 2=Console, 3=Quit (Basic actions still valid for main menu handling)
+int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, MenuState *state, MenuData *data);
 void hud_draw_cull_stats(const Font *font, const struct RenderStats *stats, int total_entities);
 
 #endif

@@ -217,6 +217,8 @@ int main(int argc, char *argv[])
     static ChunkGrid chunk_grid = {0};
     static char current_map_path[256] = {0};
 
+    bool debug_aabb = false;
+
     CommandContext cmd_ctx;
     cmd_ctx.scene = &scene;
     cmd_ctx.camera = &camera;
@@ -230,13 +232,13 @@ int main(int argc, char *argv[])
     cmd_ctx.console = &console;
     cmd_ctx.state = &game_state;
     cmd_ctx.selected_entity = &selected_entity;
+    cmd_ctx.debug_aabb = &debug_aabb;
 
     Uint32 prev_time = SDL_GetTicks();
 
     bool key_w = false, key_s = false, key_a = false, key_d = false;
     bool key_space = false;
     bool key_shift = false;
-    bool debug_aabb = false;
     bool shoot_requested = false;
     bool select_requested = false;
 
@@ -248,6 +250,9 @@ int main(int argc, char *argv[])
     Vec3 debug_ray_start = {0, 0, 0};
     Vec3 debug_ray_end = {0, 0, 0};
     float debug_ray_timer = 0;
+
+    bool frustum_culling = true;
+    MenuState menu_state = MENU_MAIN;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
     LOG_INFO("Entering main loop (WASD + Mouse, ESC=Pause, ~=Console)");
@@ -326,9 +331,20 @@ int main(int argc, char *argv[])
                     SDL_Keycode key = event.key.keysym.sym;
                     if (key == SDLK_ESCAPE)
                     {
-                        game_state = GAME_STATE_PLAYING;
-                        SDL_SetRelativeMouseMode(SDL_TRUE);
-                        LOG_INFO("Resumed");
+                        if (menu_state == MENU_MAIN)
+                        {
+                            game_state = GAME_STATE_PLAYING;
+                            SDL_SetRelativeMouseMode(SDL_TRUE);
+                            LOG_INFO("Resumed");
+                        }
+                        else if (menu_state == MENU_SETTINGS)
+                        {
+                            menu_state = MENU_MAIN;
+                        }
+                        else
+                        {
+                            menu_state = MENU_SETTINGS;
+                        }
                     }
                     else if (key == SDLK_BACKQUOTE)
                     {
@@ -581,11 +597,11 @@ int main(int argc, char *argv[])
             render_stats.chunks_total = chunk_grid.count;
             if (console.wireframe)
                 chunk_grid_render_wireframe(&chunk_grid, vp, camera.position,
-                                            &frustum, console.backface_cull,
+                                            frustum_culling ? &frustum : NULL, console.backface_cull,
                                             &render_stats);
             else
                 chunk_grid_render(&chunk_grid, vp, camera.position, light_dir,
-                                  &frustum, console.backface_cull,
+                                  frustum_culling ? &frustum : NULL, console.backface_cull,
                                   &render_stats);
             render_stats.chunks_culled = render_stats.entities_culled;
             render_stats.entities_culled = 0;
@@ -593,11 +609,11 @@ int main(int argc, char *argv[])
 
         if (console.wireframe)
             scene_render_wireframe(&scene, vp, camera.position,
-                                   &frustum, console.backface_cull,
+                                   frustum_culling ? &frustum : NULL, console.backface_cull,
                                    &render_stats);
         else
             scene_render(&scene, vp, camera.position, light_dir,
-                         &frustum, console.backface_cull,
+                         frustum_culling ? &frustum : NULL, console.backface_cull,
                          &render_stats);
 
         if (debug_aabb)
@@ -675,16 +691,25 @@ int main(int argc, char *argv[])
             int rmx = (int)(mx * ((float)RENDER_WIDTH / WINDOW_WIDTH));
             int rmy = (int)(my * ((float)RENDER_HEIGHT / WINDOW_HEIGHT));
 
-            int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked);
+            MenuData menu_data;
+            menu_data.backface_cull = &console.backface_cull;
+            menu_data.frustum_cull = &frustum_culling;
+            menu_data.wireframe = &console.wireframe;
+            menu_data.debug_info = &console.show_debug;
+            menu_data.draw_aabb = &debug_aabb;
+
+            int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, &menu_state, &menu_data);
             if (action == 1) // Resume
             {
                 game_state = GAME_STATE_PLAYING;
                 SDL_SetRelativeMouseMode(SDL_TRUE);
+                menu_state = MENU_MAIN; // Reset menu
                 LOG_INFO("Resumed");
             }
             else if (action == 2) // Console
             {
                 game_state = GAME_STATE_CONSOLE;
+                menu_state = MENU_MAIN;
                 LOG_INFO("Console opened from pause");
             }
             else if (action == 3) // Quit

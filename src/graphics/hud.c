@@ -260,78 +260,131 @@ static bool hud_button(const Font *font, int x, int y, int w, int h, const char 
     uint32_t border_col = 0xFF888888;
 
     hud_blit_rect(x, y, w, h, bg_color);
-
-    // Simple border
-    for (int px = x; px < x + w; px++)
-    {
-        render_set_pixel(px, y, border_col);
-        render_set_pixel(px, y + h - 1, border_col);
-    }
-    for (int py = y; py < y + h; py++)
-    {
-        render_set_pixel(x, py, border_col);
-        render_set_pixel(x + w - 1, py, border_col);
-    }
+    
+    // Border
+    for (int px = x; px < x + w; px++) { render_set_pixel(px, y, border_col); render_set_pixel(px, y + h - 1, border_col); }
+    for (int py = y; py < y + h; py++) { render_set_pixel(x, py, border_col); render_set_pixel(x + w - 1, py, border_col); }
 
     int tw = (int)strlen(text) * FONT_GLYPH_W;
     int tx = x + (w - tw) / 2;
     int ty = y + (h - FONT_GLYPH_H) / 2;
 
     hud_draw_text(font, tx, ty, text, text_col);
-
     return hover && clicked;
 }
 
-int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked)
+static bool hud_checkbox(const Font *font, int x, int y, int w, int h, const char *text, bool *value, int mx, int my, bool clicked)
 {
-    // Dim overlay across entire framebuffer
-    for (int py = 0; py < RENDER_HEIGHT; py++)
+    bool hover = (mx >= x && mx < x + w && my >= y && my < y + h);
+    uint32_t bg_color = hover ? 0xFF444444 : 0xFF222222;
+    uint32_t text_col = hover ? 0xFFFFFFFF : 0xFFAAAAAA;
+    uint32_t border_col = 0xFF888888;
+
+    if (hover && clicked) *value = !(*value);
+
+    // Draw box
+    hud_blit_rect(x, y, h, h, bg_color);
+    // Draw Border
+    for (int px = x; px < x + h; px++) { render_set_pixel(px, y, border_col); render_set_pixel(px, y + h - 1, border_col); }
+    for (int py = y; py < y + h; py++) { render_set_pixel(x, py, border_col); render_set_pixel(x + h - 1, py, border_col); }
+
+    // Checkmark
+    if (*value)
     {
-        for (int px = 0; px < RENDER_WIDTH; px++)
-        {
-            // Simple darken: preserve alpha? No, just overwrite with semi-transparent black
-            // But we don't have alpha blending in set_pixel?
-            // Actually render_set_pixel just sets the value.
-            // If we want transparency, we need to read, blend, write.
-            // But existing code just set 0xCC000000.
-            // Let's assume standard overwrite for now, or maybe check render_set_pixel implementation.
-            // Existing code did: render_set_pixel(px, py, 0xCC000000);
-            // This suggests it relies on some blending or it just draws opaque dark grey?
-            // Let's stick to the existing behavior:
-            // But wait, if render_set_pixel is just array access, 0xCC000000 is just a color.
-            // If it's ARGB, A=CC.
-            // Let's stick to what was there: simple fill.
-            // To make it look like an overlay, maybe checkerboard?
-            if ((px + py) % 2 == 0)
-                render_set_pixel(px, py, 0xFF000000);
-        }
+        int pad = 3;
+        hud_blit_rect(x + pad, y + pad, h - pad * 2, h - pad * 2, 0xFF00FF00);
     }
+
+    // Label
+    hud_draw_text(font, x + h + 8, y + (h - FONT_GLYPH_H)/2, text, text_col);
+    
+    return hover && clicked;
+}
+
+int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, MenuState *state, MenuData *data)
+{
+    // Dim overlay
+    for (int py = 0; py < RENDER_HEIGHT; py++)
+        for (int px = 0; px < RENDER_WIDTH; px++)
+            if ((px + py) % 2 == 0) render_set_pixel(px, py, 0xFF000000);
 
     int cx = RENDER_WIDTH / 2;
     int cy = RENDER_HEIGHT / 2;
-
-    // Title
-    const char *title = "PAUSED";
-    int tw = (int)strlen(title) * FONT_GLYPH_W;
-    hud_draw_text(font, cx - tw / 2, cy - 50, title, 0xFFFFFFFF);
-
-    int btn_w = 100;
+    int btn_w = 120;
     int btn_h = 20;
-    int spacing = 8;
-    int start_y = cy - 10;
+    int spacing = 6;
 
-    int action = 0;
+    if (*state == MENU_MAIN)
+    {
+        hud_draw_text(font, cx - (6 * FONT_GLYPH_W) / 2, cy - 60, "PAUSED", 0xFFFFFFFF);
+        int start_y = cy - 20;
+        
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "RESUME", mx, my, clicked)) return 1;
+        start_y += btn_h + spacing;
+        
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "SETTINGS", mx, my, clicked)) *state = MENU_SETTINGS;
+        start_y += btn_h + spacing;
 
-    if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "RESUME", mx, my, clicked))
-        action = 1;
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "CONSOLE", mx, my, clicked)) return 2;
+        start_y += btn_h + spacing;
+        
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "QUIT", mx, my, clicked)) return 3;
+    }
+    else if (*state == MENU_SETTINGS)
+    {
+        hud_draw_text(font, cx - (8 * FONT_GLYPH_W) / 2, cy - 60, "SETTINGS", 0xFFFFFFFF);
+        int start_y = cy - 20;
 
-    if (hud_button(font, cx - btn_w / 2, start_y + btn_h + spacing, btn_w, btn_h, "CONSOLE", mx, my, clicked))
-        action = 2;
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "GAMEPLAY", mx, my, clicked)) *state = MENU_SETTINGS_GAMEPLAY;
+        start_y += btn_h + spacing;
 
-    if (hud_button(font, cx - btn_w / 2, start_y + (btn_h + spacing) * 2, btn_w, btn_h, "QUIT", mx, my, clicked))
-        action = 3;
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "GRAPHICS", mx, my, clicked)) *state = MENU_SETTINGS_GRAPHICS;
+        start_y += btn_h + spacing;
 
-    return action;
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "AUDIO", mx, my, clicked)) *state = MENU_SETTINGS_AUDIO;
+        start_y += btn_h + spacing;
+
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "BACK", mx, my, clicked)) *state = MENU_MAIN;
+    }
+    else if (*state == MENU_SETTINGS_GRAPHICS)
+    {
+        hud_draw_text(font, cx - (8 * FONT_GLYPH_W) / 2, cy - 60, "GRAPHICS", 0xFFFFFFFF);
+        int start_y = cy - 20;
+        
+        int check_h = 16;
+        int check_w = 200;  // ample width for text
+        int ox = cx - 60;   // offset left for checkbox
+
+        hud_checkbox(font, ox, start_y, check_w, check_h, "Frustum Culling", data->frustum_cull, mx, my, clicked);
+        start_y += check_h + spacing;
+
+        hud_checkbox(font, ox, start_y, check_w, check_h, "Backface Culling", data->backface_cull, mx, my, clicked);
+        start_y += check_h + spacing;
+
+        hud_checkbox(font, ox, start_y, check_w, check_h, "Wireframe Mode", data->wireframe, mx, my, clicked);
+        start_y += check_h + spacing;
+
+        hud_checkbox(font, ox, start_y, check_w, check_h, "Draw AABBs", data->draw_aabb, mx, my, clicked);
+        start_y += check_h + spacing;
+
+        if (hud_button(font, cx - btn_w / 2, start_y + 10, btn_w, btn_h, "BACK", mx, my, clicked)) *state = MENU_SETTINGS;
+    }
+    else if (*state == MENU_SETTINGS_GAMEPLAY)
+    {
+        hud_draw_text(font, cx - (8 * FONT_GLYPH_W) / 2, cy - 60, "GAMEPLAY", 0xFFFFFFFF);
+        int start_y = cy;
+        hud_draw_text(font, cx - 40, start_y, "(Empty)", 0xFFAAAAAA);
+        if (hud_button(font, cx - btn_w / 2, start_y + 30, btn_w, btn_h, "BACK", mx, my, clicked)) *state = MENU_SETTINGS;
+    }
+    else if (*state == MENU_SETTINGS_AUDIO)
+    {
+        hud_draw_text(font, cx - (5 * FONT_GLYPH_W) / 2, cy - 60, "AUDIO", 0xFFFFFFFF);
+        int start_y = cy;
+        hud_draw_text(font, cx - 40, start_y, "(Empty)", 0xFFAAAAAA);
+        if (hud_button(font, cx - btn_w / 2, start_y + 30, btn_w, btn_h, "BACK", mx, my, clicked)) *state = MENU_SETTINGS;
+    }
+
+    return 0;
 }
 
 void hud_draw_cull_stats(const Font *font, const RenderStats *stats, int total_entities)

@@ -59,6 +59,7 @@ typedef struct
     Console *console;
     GameState *state;
     int *selected_entity;
+    bool *debug_aabb;
 } CommandContext;
 
 void console_execute(Console *con, CommandContext *ctx);
