@@ -1,4 +1,4 @@
-# 3D Software Rendering Engine
+# Ronin - 3D Software Rendering Engine
 
 This software implements a complete 3D graphics pipeline from scratch, utilizing the C23 standard. No external graphics APIs (such as OpenGL or Vulkan) are employed; all rasterization, geometric transformations, and clipping operations are computed on the CPU. The SDL2 library is utilized exclusively for window instantiation, input polling, and the final presentation of the framebuffer.
 
