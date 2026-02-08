@@ -54,6 +54,7 @@ typedef struct RenderStats
     int entities_culled; // Frustum-culled entities
     int backface_culled; // Triangles discarded by backface test
     int triangles_drawn; // Triangles sent to rasterizer
+    int clip_trivial;    // Triangles that skipped clipping (trivial accept)
 } RenderStats;
 
 void scene_init(Scene *scene);

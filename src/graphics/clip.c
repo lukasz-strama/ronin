@@ -110,8 +110,57 @@ static void clip_against_plane(ClipPolygon *poly, FrustumPlane plane)
     poly->count = out_count;
 }
 
+// Compute 6-bit outcode for a single clip-space vertex.
+// Each bit indicates the vertex is outside one frustum plane.
+static inline uint8_t clip_outcode(Vec4 v)
+{
+    uint8_t code = 0;
+    if (v.x < -v.w)
+        code |= 0x01; // LEFT
+    if (v.x > v.w)
+        code |= 0x02; // RIGHT
+    if (v.y < -v.w)
+        code |= 0x04; // BOTTOM
+    if (v.y > v.w)
+        code |= 0x08; // TOP
+    if (v.z < 0)
+        code |= 0x10; // NEAR
+    if (v.z > v.w)
+        code |= 0x20; // FAR
+    return code;
+}
+
+ClipResult clip_classify(const ClipPolygon *poly)
+{
+    uint8_t and_codes = 0xFF; // intersection of outcodes
+    uint8_t or_codes = 0x00;  // union of outcodes
+
+    for (int i = 0; i < poly->count; i++)
+    {
+        uint8_t c = clip_outcode(poly->vertices[i].position);
+        and_codes &= c;
+        or_codes |= c;
+    }
+
+    if (and_codes != 0)
+        return CLIP_REJECT; // all verts outside same plane
+    if (or_codes == 0)
+        return CLIP_ACCEPT; // all verts inside all planes
+    return CLIP_NEEDED;
+}
+
 int clip_polygon_against_frustum(ClipPolygon *poly)
 {
+    // Fast path: trivial accept/reject via outcodes
+    ClipResult cr = clip_classify(poly);
+    if (cr == CLIP_REJECT)
+    {
+        poly->count = 0;
+        return 0;
+    }
+    if (cr == CLIP_ACCEPT)
+        return poly->count;
+
     clip_against_plane(poly, PLANE_NEAR);
     if (poly->count < 3)
         return 0;

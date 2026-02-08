@@ -295,18 +295,28 @@ void hud_draw_cull_stats(const Font *font, const RenderStats *stats, int total_e
     char buf2[32];
     snprintf(buf2, sizeof(buf2), "TRI:%d BF:%d", stats->triangles_drawn, stats->backface_culled);
 
+    // Line 3: clip-skipped triangles (trivially accepted)
+    char buf3[32];
+    snprintf(buf3, sizeof(buf3), "CL:%d skip", stats->clip_trivial);
+
     int len1 = (int)strlen(buf1) * FONT_GLYPH_W;
     int len2 = (int)strlen(buf2) * FONT_GLYPH_W;
+    int len3 = (int)strlen(buf3) * FONT_GLYPH_W;
     int text_w = len1 > len2 ? len1 : len2;
+    if (len3 > text_w)
+        text_w = len3;
     int x = RENDER_WIDTH - text_w - 6;
     int y = 2;
     int line_h = FONT_GLYPH_H + 2;
 
-    hud_blit_rect(x - 2, y, text_w + 4, line_h * 2 + 4, 0xFF0A0A0A);
+    hud_blit_rect(x - 2, y, text_w + 4, line_h * 3 + 4, 0xFF0A0A0A);
 
     hud_draw_text(font, x + 1, y + 3, buf1, 0xFF000000);
     hud_draw_text(font, x, y + 2, buf1, 0xFF00CCFF);
 
     hud_draw_text(font, x + 1, y + 3 + line_h, buf2, 0xFF000000);
     hud_draw_text(font, x, y + 2 + line_h, buf2, 0xFF00CCFF);
+
+    hud_draw_text(font, x + 1, y + 3 + line_h * 2, buf3, 0xFF000000);
+    hud_draw_text(font, x, y + 2 + line_h * 2, buf3, 0xFF00CCFF);
 }

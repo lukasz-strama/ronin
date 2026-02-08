@@ -7,7 +7,6 @@
 #include <float.h>
 #include <math.h>
 
-// Capacity growth factor for dynamic arrays
 #define OBJ_INITIAL_CAP 1024
 
 // Read an entire file into a heap-allocated buffer.
@@ -252,6 +251,8 @@ int obj_load(OBJMesh *mesh, const char *path)
                         ov.v = texcoords[tex_idx[k] * 2 + 1];
                     }
 
+                    ov.pos_index = indices[k];
+
                     out_verts[out_vert_count++] = ov;
                 }
 
@@ -275,6 +276,8 @@ int obj_load(OBJMesh *mesh, const char *path)
     mesh->faces = shrunk_faces ? shrunk_faces : out_faces;
     mesh->vertex_count = out_vert_count;
     mesh->face_count = f_count;
+    mesh->position_count = v_count;
+    mesh->cache = (TransformCache *)calloc(v_count, sizeof(TransformCache));
 
     // Compute AABB from all vertex positions
     mesh->bounds.min = (Vec3){FLT_MAX, FLT_MAX, FLT_MAX};
@@ -337,6 +340,12 @@ void obj_mesh_free(OBJMesh *mesh)
         free(mesh->faces);
         mesh->faces = NULL;
     }
+    if (mesh->cache)
+    {
+        free(mesh->cache);
+        mesh->cache = NULL;
+    }
     mesh->vertex_count = 0;
     mesh->face_count = 0;
+    mesh->position_count = 0;
 }

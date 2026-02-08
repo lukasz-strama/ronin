@@ -3,6 +3,8 @@
 #include <string.h>
 #include <float.h>
 
+static uint32_t s_transform_gen = 0;
+
 void scene_init(Scene *scene)
 {
     memset(scene, 0, sizeof(Scene));
@@ -132,7 +134,8 @@ static void entity_bounding_sphere(const Entity *ent, Vec3 *center_out, float *r
 // Render a Mesh entity with flat shading (cubes, etc.)
 static void render_mesh_flat(const Entity *ent, Mat4 model, Mat4 vp,
                              Vec3 cam_pos, Vec3 light_dir,
-                             bool backface_cull, int *bf_culled, int *tri_drawn)
+                             bool backface_cull, int *bf_culled, int *tri_drawn,
+                             int *clip_trivial)
 {
     Mesh *m = ent->mesh;
     Mat4 mvp = mat4_mul(vp, model);
@@ -179,8 +182,13 @@ static void render_mesh_flat(const Entity *ent, Mat4 model, Mat4 vp,
         poly.vertices[1] = (ClipVertex){t1, 0, 0, shaded};
         poly.vertices[2] = (ClipVertex){t2, 0, 0, shaded};
 
-        if (clip_polygon_against_frustum(&poly) < 3)
+        ClipResult cr = clip_classify(&poly);
+        if (cr == CLIP_REJECT)
             continue;
+        if (cr == CLIP_NEEDED && clip_polygon_against_frustum(&poly) < 3)
+            continue;
+        if (cr == CLIP_ACCEPT && clip_trivial)
+            (*clip_trivial)++;
 
         ProjectedVertex pv0 = render_project_vertex(poly.vertices[0].position);
         for (int j = 1; j < poly.count - 1; j++)
@@ -202,7 +210,8 @@ static void render_mesh_flat(const Entity *ent, Mat4 model, Mat4 vp,
 // Render a Mesh entity with world-space UV texturing (floor tiles, etc.)
 static void render_mesh_textured(const Entity *ent, Mat4 model, Mat4 vp,
                                  Vec3 cam_pos, Vec3 light_dir,
-                                 bool backface_cull, int *bf_culled, int *tri_drawn)
+                                 bool backface_cull, int *bf_culled, int *tri_drawn,
+                                 int *clip_trivial)
 {
     Mesh *m = ent->mesh;
 
@@ -256,8 +265,13 @@ static void render_mesh_textured(const Entity *ent, Mat4 model, Mat4 vp,
         poly.vertices[1] = (ClipVertex){t1, u1, vt1, 0};
         poly.vertices[2] = (ClipVertex){t2, u2, vt2, 0};
 
-        if (clip_polygon_against_frustum(&poly) < 3)
+        ClipResult cr = clip_classify(&poly);
+        if (cr == CLIP_REJECT)
             continue;
+        if (cr == CLIP_NEEDED && clip_polygon_against_frustum(&poly) < 3)
+            continue;
+        if (cr == CLIP_ACCEPT && clip_trivial)
+            (*clip_trivial)++;
 
         ProjectedVertex pv0 = render_project_vertex(poly.vertices[0].position);
         for (int j = 1; j < poly.count - 1; j++)
@@ -282,29 +296,41 @@ static void render_mesh_textured(const Entity *ent, Mat4 model, Mat4 vp,
 // Render an OBJMesh entity with flat shading
 static void render_obj_flat(const Entity *ent, Mat4 model, Mat4 vp,
                             Vec3 cam_pos, Vec3 light_dir,
-                            bool backface_cull, int *bf_culled, int *tri_drawn)
+                            bool backface_cull, int *bf_culled, int *tri_drawn,
+                            int *clip_trivial)
 {
     OBJMesh *m = ent->obj_mesh;
     Mat4 mvp = mat4_mul(vp, model);
+    uint32_t gen = ++s_transform_gen;
+    TransformCache *cache = m->cache;
 
     for (int i = 0; i < m->face_count; i++)
     {
         OBJFace face = m->faces[i];
-        OBJVertex ov0 = m->vertices[face.a];
-        OBJVertex ov1 = m->vertices[face.b];
-        OBJVertex ov2 = m->vertices[face.c];
+        int idx[3] = {face.a, face.b, face.c};
 
-        // World space for lighting
-        Vec3 wv0 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(ov0.position, 1.0f)));
-        Vec3 wv1 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(ov1.position, 1.0f)));
-        Vec3 wv2 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(ov2.position, 1.0f)));
+        Vec3 wv[3];
+        Vec4 cv[3];
+        for (int k = 0; k < 3; k++)
+        {
+            OBJVertex *vert = &m->vertices[idx[k]];
+            TransformCache *tc = &cache[vert->pos_index];
+            if (tc->gen != gen)
+            {
+                tc->world = mat4_mul_vec4(model, vec4_from_vec3(vert->position, 1.0f));
+                tc->clip = mat4_mul_vec4(mvp, vec4_from_vec3(vert->position, 1.0f));
+                tc->gen = gen;
+            }
+            wv[k] = vec3_from_vec4(tc->world);
+            cv[k] = tc->clip;
+        }
 
-        Vec3 edge1 = vec3_sub(wv1, wv0);
-        Vec3 edge2 = vec3_sub(wv2, wv0);
+        Vec3 edge1 = vec3_sub(wv[1], wv[0]);
+        Vec3 edge2 = vec3_sub(wv[2], wv[0]);
         Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
 
         // Backface culling
-        Vec3 center = vec3_mul(vec3_add(vec3_add(wv0, wv1), wv2), 1.0f / 3.0f);
+        Vec3 center = vec3_mul(vec3_add(vec3_add(wv[0], wv[1]), wv[2]), 1.0f / 3.0f);
         Vec3 view_dir = vec3_normalize(vec3_sub(cam_pos, center));
         if (backface_cull && vec3_dot(normal, view_dir) < 0)
         {
@@ -319,18 +345,19 @@ static void render_obj_flat(const Entity *ent, Mat4 model, Mat4 vp,
         intensity = 0.15f + intensity * 0.85f;
         uint32_t shaded = render_shade_color(face.color, intensity);
 
-        Vec4 t0 = mat4_mul_vec4(mvp, vec4_from_vec3(ov0.position, 1.0f));
-        Vec4 t1 = mat4_mul_vec4(mvp, vec4_from_vec3(ov1.position, 1.0f));
-        Vec4 t2 = mat4_mul_vec4(mvp, vec4_from_vec3(ov2.position, 1.0f));
-
         ClipPolygon poly;
         poly.count = 3;
-        poly.vertices[0] = (ClipVertex){t0, 0, 0, shaded};
-        poly.vertices[1] = (ClipVertex){t1, 0, 0, shaded};
-        poly.vertices[2] = (ClipVertex){t2, 0, 0, shaded};
+        poly.vertices[0] = (ClipVertex){cv[0], 0, 0, shaded};
+        poly.vertices[1] = (ClipVertex){cv[1], 0, 0, shaded};
+        poly.vertices[2] = (ClipVertex){cv[2], 0, 0, shaded};
 
-        if (clip_polygon_against_frustum(&poly) < 3)
+        ClipResult cr = clip_classify(&poly);
+        if (cr == CLIP_REJECT)
             continue;
+        if (cr == CLIP_NEEDED && clip_polygon_against_frustum(&poly) < 3)
+            continue;
+        if (cr == CLIP_ACCEPT && clip_trivial)
+            (*clip_trivial)++;
 
         ProjectedVertex pv0 = render_project_vertex(poly.vertices[0].position);
         for (int j = 1; j < poly.count - 1; j++)
@@ -356,6 +383,7 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir,
     int culled = 0;
     int bf_culled = 0;
     int tri_drawn = 0;
+    int clip_triv = 0;
 
     for (int i = 0; i < scene->count; i++)
     {
@@ -383,14 +411,17 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir,
         case ENTITY_MESH:
             if (ent->render_mode == RENDER_TEXTURED && ent->texture)
                 render_mesh_textured(ent, model, vp, camera_pos, light_dir,
-                                     backface_cull, &bf_culled, &tri_drawn);
+                                     backface_cull, &bf_culled, &tri_drawn,
+                                     &clip_triv);
             else
                 render_mesh_flat(ent, model, vp, camera_pos, light_dir,
-                                 backface_cull, &bf_culled, &tri_drawn);
+                                 backface_cull, &bf_culled, &tri_drawn,
+                                 &clip_triv);
             break;
         case ENTITY_OBJ_MESH:
             render_obj_flat(ent, model, vp, camera_pos, light_dir,
-                            backface_cull, &bf_culled, &tri_drawn);
+                            backface_cull, &bf_culled, &tri_drawn,
+                            &clip_triv);
             break;
         }
     }
@@ -400,6 +431,7 @@ void scene_render(Scene *scene, Mat4 vp, Vec3 camera_pos, Vec3 light_dir,
         stats_out->entities_culled = culled;
         stats_out->backface_culled = bf_culled;
         stats_out->triangles_drawn = tri_drawn;
+        stats_out->clip_trivial = clip_triv;
     }
 }
 
@@ -410,6 +442,7 @@ void scene_render_wireframe(Scene *scene, Mat4 vp, Vec3 camera_pos,
     int culled = 0;
     int bf_culled = 0;
     int tri_drawn = 0;
+    int clip_triv = 0;
 
     for (int i = 0; i < scene->count; i++)
     {
@@ -439,40 +472,64 @@ void scene_render_wireframe(Scene *scene, Mat4 vp, Vec3 camera_pos,
         else
             face_count = ent->obj_mesh->face_count;
 
+        // Per-entity cache generation for OBJ vertex deduplication
+        uint32_t gen = 0;
+        TransformCache *tcache = NULL;
+        if (ent->type == ENTITY_OBJ_MESH)
+        {
+            gen = ++s_transform_gen;
+            tcache = ent->obj_mesh->cache;
+        }
+
         for (int f = 0; f < face_count; f++)
         {
-            Vec3 v[3];
+            Vec3 wv[3];
+            Vec4 cv[3];
             uint32_t color = 0xFF00FF00;
 
             if (ent->type == ENTITY_MESH)
             {
                 Face face = ent->mesh->faces[f];
-                v[0] = ent->mesh->vertices[face.a];
-                v[1] = ent->mesh->vertices[face.b];
-                v[2] = ent->mesh->vertices[face.c];
+                Vec3 v[3] = {
+                    ent->mesh->vertices[face.a],
+                    ent->mesh->vertices[face.b],
+                    ent->mesh->vertices[face.c]};
                 color = face.color;
+                for (int k = 0; k < 3; k++)
+                {
+                    Vec4 h = vec4_from_vec3(v[k], 1.0f);
+                    wv[k] = vec3_from_vec4(mat4_mul_vec4(model, h));
+                    cv[k] = mat4_mul_vec4(mvp, h);
+                }
             }
             else
             {
                 OBJFace face = ent->obj_mesh->faces[f];
-                v[0] = ent->obj_mesh->vertices[face.a].position;
-                v[1] = ent->obj_mesh->vertices[face.b].position;
-                v[2] = ent->obj_mesh->vertices[face.c].position;
+                int idx[3] = {face.a, face.b, face.c};
                 color = face.color;
+                for (int k = 0; k < 3; k++)
+                {
+                    OBJVertex *vert = &ent->obj_mesh->vertices[idx[k]];
+                    TransformCache *tc = &tcache[vert->pos_index];
+                    if (tc->gen != gen)
+                    {
+                        tc->world = mat4_mul_vec4(model, vec4_from_vec3(vert->position, 1.0f));
+                        tc->clip = mat4_mul_vec4(mvp, vec4_from_vec3(vert->position, 1.0f));
+                        tc->gen = gen;
+                    }
+                    wv[k] = vec3_from_vec4(tc->world);
+                    cv[k] = tc->clip;
+                }
             }
 
             // Backface culling in wireframe
             if (backface_cull)
             {
-                Vec3 wv0 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(v[0], 1.0f)));
-                Vec3 wv1 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(v[1], 1.0f)));
-                Vec3 wv2 = vec3_from_vec4(mat4_mul_vec4(model, vec4_from_vec3(v[2], 1.0f)));
-
-                Vec3 edge1 = vec3_sub(wv1, wv0);
-                Vec3 edge2 = vec3_sub(wv2, wv0);
+                Vec3 edge1 = vec3_sub(wv[1], wv[0]);
+                Vec3 edge2 = vec3_sub(wv[2], wv[0]);
                 Vec3 normal = vec3_normalize(vec3_cross(edge1, edge2));
 
-                Vec3 center = vec3_mul(vec3_add(vec3_add(wv0, wv1), wv2), 1.0f / 3.0f);
+                Vec3 center = vec3_mul(vec3_add(vec3_add(wv[0], wv[1]), wv[2]), 1.0f / 3.0f);
                 Vec3 view_dir = vec3_normalize(vec3_sub(camera_pos, center));
                 if (vec3_dot(normal, view_dir) < 0)
                 {
@@ -481,19 +538,19 @@ void scene_render_wireframe(Scene *scene, Mat4 vp, Vec3 camera_pos,
                 }
             }
 
-            // Clip-space transform
-            Vec4 cv[3];
-            for (int k = 0; k < 3; k++)
-                cv[k] = mat4_mul_vec4(mvp, vec4_from_vec3(v[k], 1.0f));
-
             ClipPolygon poly;
             poly.count = 3;
             poly.vertices[0] = (ClipVertex){cv[0], 0, 0, color};
             poly.vertices[1] = (ClipVertex){cv[1], 0, 0, color};
             poly.vertices[2] = (ClipVertex){cv[2], 0, 0, color};
 
-            if (clip_polygon_against_frustum(&poly) < 3)
+            ClipResult cr = clip_classify(&poly);
+            if (cr == CLIP_REJECT)
                 continue;
+            if (cr == CLIP_NEEDED && clip_polygon_against_frustum(&poly) < 3)
+                continue;
+            if (cr == CLIP_ACCEPT)
+                clip_triv++;
 
             // Draw wireframe edges of the clipped polygon
             for (int j = 0; j < poly.count; j++)
@@ -516,6 +573,7 @@ void scene_render_wireframe(Scene *scene, Mat4 vp, Vec3 camera_pos,
         stats_out->entities_culled = culled;
         stats_out->backface_culled = bf_culled;
         stats_out->triangles_drawn = tri_drawn;
+        stats_out->clip_trivial = clip_triv;
     }
 }
 

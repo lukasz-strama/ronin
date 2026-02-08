@@ -4,19 +4,26 @@
 #include "math/math.h"
 #include <stdint.h>
 
-// Per-vertex data unrolled from OBJ indices
 typedef struct
 {
     Vec3 position;
     Vec3 normal;
     float u, v;
+    int pos_index;
 } OBJVertex;
 
 typedef struct
 {
-    int a, b, c;    // Indices into the vertex array
-    uint32_t color; // Per-face color (computed from normals or default)
+    int a, b, c;
+    uint32_t color;
 } OBJFace;
+
+typedef struct
+{
+    Vec4 world;
+    Vec4 clip;
+    uint32_t gen;
+} TransformCache;
 
 typedef struct
 {
@@ -26,6 +33,8 @@ typedef struct
     int face_count;
     AABB bounds;
     float radius;
+    TransformCache *cache;
+    int position_count;
 } OBJMesh;
 
 // The caller must free the mesh with obj_mesh_free().
