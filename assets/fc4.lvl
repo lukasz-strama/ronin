@@ -1,0 +1,10 @@
+# Level saved by engine
+
+mesh assets/fc4.obj
+
+# Camera format: player_start <x> <y> <z> <yaw>
+player_start  36.29  44.38  -18.67   226.66
+
+# Entity format: entity <type> <x> <y> <z> <rot_y>
+entity teapot  30.00  40.00  -30.00   1048.2
+entity teapot  25.09  38.21  -21.27   435.5

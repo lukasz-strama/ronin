@@ -6,8 +6,9 @@
 #include "core/entity.h"
 #include "core/camera.h"
 #include "core/obj_loader.h"
+#include "core/collision_grid.h"
+#include "graphics/mesh.h"
 
-// Game state machine
 typedef enum
 {
     GAME_STATE_PLAYING,
@@ -15,7 +16,6 @@ typedef enum
     GAME_STATE_CONSOLE
 } GameState;
 
-// Console constants
 #define CONSOLE_INPUT_MAX 128
 #define CONSOLE_LOG_LINES 12
 #define CONSOLE_LOG_LINE_LEN 64
@@ -45,6 +45,10 @@ typedef struct
     Scene *scene;
     Camera *camera;
     OBJMesh *teapot;
+    Mesh *cube_mesh;
+    OBJMesh *loaded_map;
+    CollisionGrid *collision_grid;
+    char *current_map_path;
     bool *running;
     Console *console;
     GameState *state;

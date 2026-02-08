@@ -15,6 +15,8 @@
 #include "core/obj_loader.h"
 #include "core/entity.h"
 #include "core/console.h"
+#include "core/level.h"
+#include "core/collision_grid.h"
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
@@ -209,11 +211,18 @@ int main(int argc, char *argv[])
 
     bool running = true;
     int selected_entity = -1;
+    static OBJMesh loaded_map = {0};
+    static CollisionGrid collision_grid = {0};
+    static char current_map_path[256] = {0};
 
     CommandContext cmd_ctx;
     cmd_ctx.scene = &scene;
     cmd_ctx.camera = &camera;
     cmd_ctx.teapot = &teapot;
+    cmd_ctx.cube_mesh = &cube_mesh;
+    cmd_ctx.loaded_map = &loaded_map;
+    cmd_ctx.collision_grid = &collision_grid;
+    cmd_ctx.current_map_path = current_map_path;
     cmd_ctx.running = &running;
     cmd_ctx.console = &console;
     cmd_ctx.state = &game_state;

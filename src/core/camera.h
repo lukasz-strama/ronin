@@ -4,6 +4,8 @@
 #include "math/math.h"
 #include <stdbool.h>
 
+struct CollisionGrid;
+
 #define CAMERA_SPEED 5.0f
 #define CAMERA_SENSITIVITY 0.002f
 #define CAMERA_PITCH_LIMIT 1.55f // ~89 degrees
@@ -29,6 +31,8 @@ typedef struct
     // Collision world
     AABB colliders[MAX_COLLIDERS];
     int collider_count;
+    bool fly_mode;
+    struct CollisionGrid *map_grid;
 } Camera;
 
 void camera_init(Camera *cam, Vec3 position, float yaw, float pitch);

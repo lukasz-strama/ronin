@@ -1,4 +1,5 @@
 #include "core/console.h"
+#include "core/level.h"
 #include "core/log.h"
 #include "graphics/render.h"
 
@@ -167,15 +168,20 @@ void console_execute(Console *con, CommandContext *ctx)
     if (strcmp(tokens[0], "help") == 0)
     {
         console_log(con, "Commands:");
-        console_log(con, " help             - show this");
-        console_log(con, " spawn teapot     - add teapot");
-        console_log(con, " set speed <N>    - rotation spd");
-        console_log(con, " toggle wireframe - wireframe");
-        console_log(con, " toggle aabb      - bounding box");
-        console_log(con, " toggle rays      - ray debug vis");
-        console_log(con, " deselect         - clear selection");
-        console_log(con, " resume           - back to game");
-        console_log(con, " quit             - exit engine");
+        console_log(con, " help                 - show this");
+        console_log(con, " spawn teapot         - add teapot");
+        console_log(con, " set speed <N>        - rotation spd");
+        console_log(con, " toggle wireframe     - wireframe");
+        console_log(con, " toggle aabb          - bounding box");
+        console_log(con, " toggle rays          - ray debug vis");
+        console_log(con, " deselect             - clear selection");
+        console_log(con, " load_level <file>    - load level");
+        console_log(con, " save_level <file>    - save level");
+        console_log(con, " load_map <obj>       - load map obj");
+        console_log(con, " move <#|sel> x y z   - move entity");
+        console_log(con, " fly                  - toggle fly");
+        console_log(con, " resume               - back to game");
+        console_log(con, " quit                 - exit engine");
     }
     // --- quit ---
     else if (strcmp(tokens[0], "quit") == 0 || strcmp(tokens[0], "exit") == 0)
@@ -191,10 +197,10 @@ void console_execute(Console *con, CommandContext *ctx)
     else if (strcmp(tokens[0], "spawn") == 0 && ntokens >= 2 &&
              strcmp(tokens[1], "teapot") == 0)
     {
-        // Spawn at camera position + 5 units forward
+        // Spawn at camera position + 5 units forward, at camera height
         Vec3 spawn_pos = vec3_add(ctx->camera->position,
                                   vec3_mul(ctx->camera->direction, 5.0f));
-        spawn_pos.y = 0.0f;
+        spawn_pos.y -= 1.0f; // Slightly below eye level
 
         int idx = scene_add_obj(ctx->scene, ctx->teapot, spawn_pos, 0.4f);
         if (idx >= 0)
@@ -259,6 +265,87 @@ void console_execute(Console *con, CommandContext *ctx)
         if (ctx->selected_entity)
             *ctx->selected_entity = -1;
         console_log(con, "Selection cleared");
+    }
+    // --- load_level <filename> ---
+    else if (strcmp(tokens[0], "load_level") == 0 && ntokens >= 2)
+    {
+        if (level_load(tokens[1], ctx->scene, ctx->camera,
+                       ctx->teapot, ctx->cube_mesh,
+                       ctx->loaded_map, ctx->collision_grid,
+                       ctx->current_map_path) == 0)
+        {
+            console_log(con, "Loaded: %s", tokens[1]);
+        }
+        else
+        {
+            console_log(con, "ERROR loading: %s", tokens[1]);
+        }
+    }
+    // --- save_level <filename> ---
+    else if (strcmp(tokens[0], "save_level") == 0 && ntokens >= 2)
+    {
+        if (level_save(tokens[1], ctx->scene, ctx->camera,
+                       ctx->current_map_path) == 0)
+        {
+            console_log(con, "Saved: %s", tokens[1]);
+        }
+        else
+        {
+            console_log(con, "ERROR saving: %s", tokens[1]);
+        }
+    }
+    // --- load_map <obj_path> ---
+    else if (strcmp(tokens[0], "load_map") == 0 && ntokens >= 2)
+    {
+        if (level_load_map(tokens[1], ctx->scene, ctx->camera,
+                           ctx->loaded_map, ctx->collision_grid) == 0)
+        {
+            // Track the loaded map path for save
+            if (ctx->current_map_path) {
+                strncpy(ctx->current_map_path, tokens[1], 255);
+                ctx->current_map_path[255] = '\0';
+            }
+            console_log(con, "Map loaded: %s", tokens[1]);
+        }
+        else
+        {
+            console_log(con, "ERROR loading map: %s", tokens[1]);
+        }
+    }
+    // --- move <entity#|selected> <x> <y> <z> ---
+    else if (strcmp(tokens[0], "move") == 0 && ntokens >= 4)
+    {
+        int ent_idx = -1;
+
+        // Check if using selected entity or entity number
+        if (strcmp(tokens[1], "selected") == 0 || strcmp(tokens[1], "sel") == 0)
+        {
+            ent_idx = *ctx->selected_entity;
+        }
+        else
+        {
+            ent_idx = atoi(tokens[1]);
+        }
+
+        if (ent_idx >= 0 && ent_idx < ctx->scene->count &&
+            ctx->scene->entities[ent_idx].active)
+        {
+            float x = (float)atof(tokens[2]);
+            float y = (float)atof(tokens[3]);
+            float z = ntokens >= 5 ? (float)atof(tokens[4]) : 0.0f;
+            ctx->scene->entities[ent_idx].position = (Vec3){x, y, z};
+            console_log(con, "Entity %d -> (%.1f, %.1f, %.1f)", ent_idx, x, y, z);
+        }
+        else
+        {
+            console_log(con, "Invalid entity: %s", tokens[1]);
+        }
+    }
+    // --- fly ---
+    else if (strcmp(tokens[0], "fly") == 0)
+    {
+        ctx->camera->fly_mode = !ctx->camera->fly_mode;
+        console_log(con, "Fly mode: %s", ctx->camera->fly_mode ? "ON" : "OFF");
     }
     else
     {

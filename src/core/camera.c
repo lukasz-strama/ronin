@@ -1,4 +1,5 @@
 #include "core/camera.h"
+#include "core/collision_grid.h"
 #include "core/log.h"
 #include <math.h>
 #include <stdbool.h>
@@ -11,6 +12,8 @@ void camera_init(Camera *cam, Vec3 position, float yaw, float pitch)
     cam->yaw = yaw;
     cam->pitch = pitch;
     cam->collider_count = 0;
+    cam->fly_mode = false;
+    cam->map_grid = NULL;
     camera_update_vectors(cam);
     LOG_INFO("Camera initialized at (%.2f, %.2f, %.2f) yaw=%.2f pitch=%.2f",
              position.x, position.y, position.z, yaw, pitch);
@@ -89,6 +92,13 @@ AABB camera_get_aabb(Camera *cam)
 
 bool camera_try_move(Camera *cam, Vec3 delta)
 {
+    // Fly mode skips all collision and floor constraints
+    if (cam->fly_mode)
+    {
+        cam->position = vec3_add(cam->position, delta);
+        return true;
+    }
+
     Vec3 half = {CAMERA_HALF_W, CAMERA_HALF_H, CAMERA_HALF_D};
     Vec3 new_pos = cam->position;
     bool blocked = false;
@@ -127,8 +137,20 @@ bool camera_try_move(Camera *cam, Vec3 delta)
     else
         blocked = true;
 
-    // Floor constraint
-    if (new_pos.y < CAMERA_EYE_HEIGHT)
+    // Check map grid collision
+    if (cam->map_grid)
+    {
+        AABB test_box = aabb_from_center_size(new_pos, half);
+        Vec3 push;
+        if (grid_check_aabb(cam->map_grid, test_box, &push))
+        {
+            new_pos = vec3_add(new_pos, push);
+            blocked = true;
+        }
+    }
+
+    // Floor constraint (only if no map grid)
+    if (!cam->map_grid && new_pos.y < CAMERA_EYE_HEIGHT)
         new_pos.y = CAMERA_EYE_HEIGHT;
 
     cam->position = new_pos;
