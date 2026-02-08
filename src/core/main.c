@@ -235,6 +235,7 @@ int main(int argc, char *argv[])
 
     bool key_w = false, key_s = false, key_a = false, key_d = false;
     bool key_space = false;
+    bool key_shift = false;
     bool debug_aabb = false;
     bool shoot_requested = false;
     bool select_requested = false;
@@ -371,6 +372,10 @@ int main(int argc, char *argv[])
                 case SDLK_SPACE:
                     key_space = true;
                     break;
+                case SDLK_LSHIFT:
+                case SDLK_RSHIFT:
+                    key_shift = true;
+                    break;
                 }
             }
             if (event.type == SDL_KEYUP)
@@ -392,6 +397,10 @@ int main(int argc, char *argv[])
                 case SDLK_SPACE:
                     key_space = false;
                     break;
+                case SDLK_LSHIFT:
+                case SDLK_RSHIFT:
+                    key_shift = false;
+                    break;
                 }
             }
             if (event.type == SDL_MOUSEMOTION)
@@ -412,7 +421,11 @@ int main(int argc, char *argv[])
         // --- Update (only while playing) ---
         if (game_state == GAME_STATE_PLAYING)
         {
-            float move_speed = CAMERA_SPEED * dt;
+            float current_speed = camera.fly_mode ? camera.fly_speed : CAMERA_WALK_SPEED;
+            if (key_shift)
+                current_speed *= 2.0f;
+
+            float move_speed = current_speed * dt;
             Vec3 move_delta = {0, 0, 0};
             if (key_w)
                 move_delta = vec3_add(move_delta, vec3_mul(camera.direction, move_speed));

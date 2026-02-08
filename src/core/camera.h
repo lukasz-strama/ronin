@@ -6,7 +6,9 @@
 
 struct CollisionGrid;
 
-#define CAMERA_SPEED 5.0f
+// Default settings
+#define CAMERA_WALK_SPEED 5.0f
+#define CAMERA_DEFAULT_FLY_SPEED 20.0f
 #define CAMERA_SENSITIVITY 0.002f
 #define CAMERA_PITCH_LIMIT 1.55f // ~89 degrees
 
@@ -31,6 +33,9 @@ typedef struct
     Vec3 right;     // Right vector (computed)
     float yaw;      // Horizontal rotation (radians)
     float pitch;    // Vertical rotation (radians)
+
+    // Movement
+    float fly_speed;
 
     // Vertical physics
     float velocity_y;

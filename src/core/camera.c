@@ -11,6 +11,7 @@ void camera_init(Camera *cam, Vec3 position, float yaw, float pitch)
     cam->position = position;
     cam->yaw = yaw;
     cam->pitch = pitch;
+    cam->fly_speed = CAMERA_DEFAULT_FLY_SPEED;
     cam->velocity_y = 0.0f;
     cam->grounded = false;
     cam->collider_count = 0;

@@ -211,6 +211,7 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, "Commands:");
         console_log(con, " help               - show this");
         console_log(con, " spawn teapot       - add teapot");
+        console_log(con, " fly_speed <N>      - fly speed");
         console_log(con, " set speed <N>      - rotation spd");
         console_log(con, " toggle wireframe   - wireframe");
         console_log(con, " toggle backface    - backface cull");
@@ -449,6 +450,14 @@ void console_execute(Console *con, CommandContext *ctx)
     {
         ctx->camera->fly_mode = !ctx->camera->fly_mode;
         console_log(con, "Fly mode: %s", ctx->camera->fly_mode ? "ON" : "OFF");
+    }
+    // --- fly_speed <N> ---
+    else if (strcmp(tokens[0], "fly_speed") == 0 && ntokens >= 2)
+    {
+        float spd = (float)atof(tokens[1]);
+        if (spd < 0.1f) spd = 0.1f;
+        ctx->camera->fly_speed = spd;
+        console_log(con, "Fly speed set to %.2f", spd);
     }
     else
     {
