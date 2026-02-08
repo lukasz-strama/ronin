@@ -17,7 +17,7 @@ typedef enum
 } GameState;
 
 #define CONSOLE_INPUT_MAX 128
-#define CONSOLE_LOG_LINES 12
+#define CONSOLE_LOG_LINES 128
 #define CONSOLE_LOG_LINE_LEN 64
 
 typedef struct
@@ -27,6 +27,7 @@ typedef struct
 
     char log[CONSOLE_LOG_LINES][CONSOLE_LOG_LINE_LEN];
     int log_count;
+    int scroll_offset; // 0 = standard (bottom), > 0 = lines scrolled up
 
     bool wireframe;
     bool debug_rays;
@@ -37,6 +38,7 @@ void console_clear_input(Console *con);
 void console_push_char(Console *con, char c);
 void console_pop_char(Console *con);
 void console_log(Console *con, const char *fmt, ...);
+void console_scroll(Console *con, int delta);
 void console_draw(const Console *con, const Font *font);
 
 // Command execution (needs access to scene + camera for mutation)

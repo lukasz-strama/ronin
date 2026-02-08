@@ -68,6 +68,32 @@ void console_log(Console *con, const char *fmt, ...)
     vsnprintf(con->log[con->log_count], CONSOLE_LOG_LINE_LEN, fmt, args);
     va_end(args);
     con->log_count++;
+
+    // Reset scroll when new input comes in
+    con->scroll_offset = 0;
+}
+
+// Calculate visible lines based on height, margin, input line, and font size
+// (CON_HEIGHT - FONT_GLYPH_H - pad * 3) / (FONT_GLYPH_H + 1)
+// 120 - 8 - 12 = 100. 100 / 9 = 11.
+#define CON_PAD 4
+#define CON_MAX_VISIBLE ((CON_HEIGHT - FONT_GLYPH_H - CON_PAD * 3) / (FONT_GLYPH_H + 1))
+
+void console_scroll(Console *con, int delta)
+{
+    con->scroll_offset += delta;
+    if (con->scroll_offset < 0)
+        con->scroll_offset = 0;
+
+    // Strict clamping: prevent scrolling past the top (start index 0)
+    // We want: log_count - offset >= min(log_count, CON_MAX_VISIBLE)
+    // So: offset <= log_count - min(log_count, CON_MAX_VISIBLE)
+    
+    int min_visible = con->log_count < CON_MAX_VISIBLE ? con->log_count : CON_MAX_VISIBLE;
+    int max_offset = con->log_count - min_visible;
+
+    if (con->scroll_offset > max_offset)
+        con->scroll_offset = max_offset;
 }
 
 void console_draw(const Console *con, const Font *font)
@@ -96,15 +122,25 @@ void console_draw(const Console *con, const Font *font)
         render_set_pixel(x0 + CON_WIDTH - 1, py, CON_BORDER);
     }
 
-    int pad = 4;
+    int pad = CON_PAD;
     int text_y = y0 + pad;
 
-    int max_visible = (CON_HEIGHT - FONT_GLYPH_H - pad * 3) / (FONT_GLYPH_H + 1);
-    int start = con->log_count - max_visible;
-    if (start < 0)
-        start = 0;
+    int max_visible = CON_MAX_VISIBLE;
+    
+    int end_index = con->log_count - con->scroll_offset;
+    if (end_index > con->log_count) end_index = con->log_count;
+    
+    int start_index = end_index - max_visible;
+    if (start_index < 0) start_index = 0;
 
-    for (int i = start; i < con->log_count; i++)
+    // DEBUG: Only print when scroll offset changes (pseudo-debounced) or just once per second?
+    // Using static variable to spam less
+    static int last_offset = -1;
+    if (con->scroll_offset != last_offset) {
+        last_offset = con->scroll_offset;
+    }
+
+    for (int i = start_index; i < end_index; i++)
     {
         hud_draw_text(font, x0 + pad, text_y, con->log[i], CON_LOG_CLR);
         text_y += FONT_GLYPH_H + 1;
@@ -168,22 +204,19 @@ void console_execute(Console *con, CommandContext *ctx)
     if (strcmp(tokens[0], "help") == 0)
     {
         console_log(con, "Commands:");
-        console_log(con, " help                 - show this");
-        console_log(con, " spawn teapot         - add teapot");
-        console_log(con, " set speed <N>        - rotation spd");
-        console_log(con, " toggle wireframe     - wireframe");
-        console_log(con, " toggle aabb          - bounding box");
-        console_log(con, " toggle rays          - ray debug vis");
-        console_log(con, " deselect             - clear selection");
-        console_log(con, " deselect             - clear selection");
-        console_log(con, " load <file>          - load level/map");
-        console_log(con, " load_level <file>    - load level (.lvl)");
-        console_log(con, " save_level <file>    - save level (.lvl)");
-        console_log(con, " load_map <obj>       - load map (.obj)");
-        console_log(con, " move <#|sel> x y z   - move entity");
-        console_log(con, " fly                  - toggle fly");
-        console_log(con, " resume               - back to game");
-        console_log(con, " quit                 - exit engine");
+        console_log(con, " help               - show this");
+        console_log(con, " spawn teapot       - add teapot");
+        console_log(con, " set speed <N>      - rotation spd");
+        console_log(con, " toggle wireframe   - wireframe");
+        console_log(con, " toggle aabb        - bounding box");
+        console_log(con, " toggle rays        - ray debug vis");
+        console_log(con, " deselect           - clear sel");
+        console_log(con, " load <file>        - load level/map");
+        console_log(con, " save_level <file>  - save (.lvl)");
+        console_log(con, " move <#|sel> x y z - move entity");
+        console_log(con, " fly                - toggle fly");
+        console_log(con, " resume             - back to game");
+        console_log(con, " quit               - exit");
     }
     // --- quit ---
     else if (strcmp(tokens[0], "quit") == 0 || strcmp(tokens[0], "exit") == 0)

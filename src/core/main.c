@@ -287,6 +287,14 @@ int main(int argc, char *argv[])
                     {
                         console_pop_char(&console);
                     }
+                    else if (key == SDLK_PAGEUP || key == SDLK_UP)
+                    {
+                        console_scroll(&console, 1);
+                    }
+                    else if (key == SDLK_PAGEDOWN || key == SDLK_DOWN)
+                    {
+                        console_scroll(&console, -1);
+                    }
                 }
                 else if (event.type == SDL_TEXTINPUT)
                 {
