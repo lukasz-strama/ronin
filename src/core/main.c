@@ -258,6 +258,7 @@ int main(int argc, char *argv[])
         float dt = (curr_time - prev_time) / 1000.0f;
         prev_time = curr_time;
 
+        bool menu_clicked = false;
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
@@ -315,6 +316,11 @@ int main(int argc, char *argv[])
             // --- Paused mode input ---
             if (game_state == GAME_STATE_PAUSED)
             {
+                if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
+                {
+                    menu_clicked = true;
+                }
+
                 if (event.type == SDL_KEYDOWN)
                 {
                     SDL_Keycode key = event.key.keysym.sym;
@@ -664,7 +670,27 @@ int main(int argc, char *argv[])
 
         if (game_state == GAME_STATE_PAUSED)
         {
-            hud_draw_pause_menu(&hud_font);
+            int mx, my;
+            SDL_GetMouseState(&mx, &my);
+            int rmx = (int)(mx * ((float)RENDER_WIDTH / WINDOW_WIDTH));
+            int rmy = (int)(my * ((float)RENDER_HEIGHT / WINDOW_HEIGHT));
+
+            int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked);
+            if (action == 1) // Resume
+            {
+                game_state = GAME_STATE_PLAYING;
+                SDL_SetRelativeMouseMode(SDL_TRUE);
+                LOG_INFO("Resumed");
+            }
+            else if (action == 2) // Console
+            {
+                game_state = GAME_STATE_CONSOLE;
+                LOG_INFO("Console opened from pause");
+            }
+            else if (action == 3) // Quit
+            {
+                running = false;
+            }
         }
         else if (game_state == GAME_STATE_CONSOLE)
         {

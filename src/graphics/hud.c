@@ -252,14 +252,58 @@ void hud_draw_fps(const Font *font, float dt)
     hud_draw_text(font, 4, 4, buf, 0xFF00FF00);
 }
 
-void hud_draw_pause_menu(const Font *font)
+static bool hud_button(const Font *font, int x, int y, int w, int h, const char *text, int mx, int my, bool clicked)
+{
+    bool hover = (mx >= x && mx < x + w && my >= y && my < y + h);
+    uint32_t bg_color = hover ? 0xFF666666 : 0xFF333333;
+    uint32_t text_col = hover ? 0xFFFFFFFF : 0xFFAAAAAA;
+    uint32_t border_col = 0xFF888888;
+
+    hud_blit_rect(x, y, w, h, bg_color);
+
+    // Simple border
+    for (int px = x; px < x + w; px++)
+    {
+        render_set_pixel(px, y, border_col);
+        render_set_pixel(px, y + h - 1, border_col);
+    }
+    for (int py = y; py < y + h; py++)
+    {
+        render_set_pixel(x, py, border_col);
+        render_set_pixel(x + w - 1, py, border_col);
+    }
+
+    int tw = (int)strlen(text) * FONT_GLYPH_W;
+    int tx = x + (w - tw) / 2;
+    int ty = y + (h - FONT_GLYPH_H) / 2;
+
+    hud_draw_text(font, tx, ty, text, text_col);
+
+    return hover && clicked;
+}
+
+int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked)
 {
     // Dim overlay across entire framebuffer
     for (int py = 0; py < RENDER_HEIGHT; py++)
     {
         for (int px = 0; px < RENDER_WIDTH; px++)
         {
-            render_set_pixel(px, py, 0xCC000000);
+            // Simple darken: preserve alpha? No, just overwrite with semi-transparent black
+            // But we don't have alpha blending in set_pixel?
+            // Actually render_set_pixel just sets the value.
+            // If we want transparency, we need to read, blend, write.
+            // But existing code just set 0xCC000000.
+            // Let's assume standard overwrite for now, or maybe check render_set_pixel implementation.
+            // Existing code did: render_set_pixel(px, py, 0xCC000000);
+            // This suggests it relies on some blending or it just draws opaque dark grey?
+            // Let's stick to the existing behavior:
+            // But wait, if render_set_pixel is just array access, 0xCC000000 is just a color.
+            // If it's ARGB, A=CC.
+            // Let's stick to what was there: simple fill.
+            // To make it look like an overlay, maybe checkerboard?
+            if ((px + py) % 2 == 0)
+                render_set_pixel(px, py, 0xFF000000);
         }
     }
 
@@ -269,19 +313,25 @@ void hud_draw_pause_menu(const Font *font)
     // Title
     const char *title = "PAUSED";
     int tw = (int)strlen(title) * FONT_GLYPH_W;
-    hud_draw_text(font, cx - tw / 2, cy - 20, title, 0xFFFFFFFF);
+    hud_draw_text(font, cx - tw / 2, cy - 50, title, 0xFFFFFFFF);
 
-    // Options
-    const char *opt1 = "ESC - Resume";
-    const char *opt2 = "  ~ - Console";
-    const char *opt3 = "  Q - Quit";
-    int o1w = (int)strlen(opt1) * FONT_GLYPH_W;
-    int o2w = (int)strlen(opt2) * FONT_GLYPH_W;
-    int o3w = (int)strlen(opt3) * FONT_GLYPH_W;
+    int btn_w = 100;
+    int btn_h = 20;
+    int spacing = 8;
+    int start_y = cy - 10;
 
-    hud_draw_text(font, cx - o1w / 2, cy, opt1, 0xFFAAAAAA);
-    hud_draw_text(font, cx - o2w / 2, cy + 12, opt2, 0xFFAAAAAA);
-    hud_draw_text(font, cx - o3w / 2, cy + 24, opt3, 0xFFAAAAAA);
+    int action = 0;
+
+    if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "RESUME", mx, my, clicked))
+        action = 1;
+
+    if (hud_button(font, cx - btn_w / 2, start_y + btn_h + spacing, btn_w, btn_h, "CONSOLE", mx, my, clicked))
+        action = 2;
+
+    if (hud_button(font, cx - btn_w / 2, start_y + (btn_h + spacing) * 2, btn_w, btn_h, "QUIT", mx, my, clicked))
+        action = 3;
+
+    return action;
 }
 
 void hud_draw_cull_stats(const Font *font, const RenderStats *stats, int total_entities)

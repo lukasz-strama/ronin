@@ -31,7 +31,8 @@ void hud_draw_text(const Font *font, int x, int y, const char *text, uint32_t co
 // UI elements
 void hud_draw_crosshair(uint32_t color);
 void hud_draw_fps(const Font *font, float dt);
-void hud_draw_pause_menu(const Font *font);
+// Returns: 0=None, 1=Resume, 2=Console, 3=Quit
+int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked);
 void hud_draw_cull_stats(const Font *font, const struct RenderStats *stats, int total_entities);
 
 #endif
