@@ -33,6 +33,7 @@ typedef struct
     bool wireframe;
     bool debug_rays;
     bool backface_cull;
+    bool show_debug;
 } Console;
 
 void console_init(Console *con);

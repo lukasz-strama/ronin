@@ -1,0 +1,8 @@
+# Level saved by engine
+
+mesh assets/curvedm.obj
+
+# Camera format: player_start <x> <y> <z> <yaw>
+player_start  -110.47  96.90  42.61   -12.49
+
+# Entity format: entity <type> <x> <y> <z> <rot_y>

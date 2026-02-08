@@ -25,6 +25,7 @@ void console_init(Console *con)
     con->wireframe = false;
     con->debug_rays = false;
     con->backface_cull = true;
+    con->show_debug = true;
     LOG_INFO("Console initialized");
 }
 
@@ -215,6 +216,7 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, " toggle backface    - backface cull");
         console_log(con, " toggle aabb        - bounding box");
         console_log(con, " toggle rays        - ray debug vis");
+        console_log(con, " toggle debug       - toggle HUD");
         console_log(con, " deselect           - clear sel");
         console_log(con, " load <file>        - load level/map");
         console_log(con, " save_level <file>  - save (.lvl)");
@@ -305,6 +307,13 @@ void console_execute(Console *con, CommandContext *ctx)
     {
         con->debug_rays = !con->debug_rays;
         console_log(con, "Ray debug: %s", con->debug_rays ? "ON" : "OFF");
+    }
+    // --- toggle debug ---
+    else if (strcmp(tokens[0], "toggle") == 0 && ntokens >= 2 &&
+             strcmp(tokens[1], "debug") == 0)
+    {
+        con->show_debug = !con->show_debug;
+        console_log(con, "Debug info: %s", con->show_debug ? "ON" : "OFF");
     }
     // --- deselect ---
     else if (strcmp(tokens[0], "deselect") == 0)

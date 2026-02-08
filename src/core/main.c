@@ -643,8 +643,11 @@ int main(int argc, char *argv[])
 
         // --- HUD overlays ---
         hud_draw_crosshair(0xFFFFFFFF);
-        hud_draw_fps(&hud_font, dt);
-        hud_draw_cull_stats(&hud_font, &render_stats, scene.count);
+        if (console.show_debug)
+        {
+            hud_draw_fps(&hud_font, dt);
+            hud_draw_cull_stats(&hud_font, &render_stats, scene.count);
+        }
 
         if (game_state == GAME_STATE_PAUSED)
         {

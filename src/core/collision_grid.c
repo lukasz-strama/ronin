@@ -76,9 +76,12 @@ int grid_build(CollisionGrid *grid, OBJMesh *mesh, float cell_size) {
         int z1 = (int)floorf((tri_box.max.z - grid->origin.z) / cell_size);
 
         // Clamp
-        if (x0 < 0) x0 = 0; if (x1 >= grid->nx) x1 = grid->nx - 1;
-        if (y0 < 0) y0 = 0; if (y1 >= grid->ny) y1 = grid->ny - 1;
-        if (z0 < 0) z0 = 0; if (z1 >= grid->nz) z1 = grid->nz - 1;
+        if (x0 < 0) x0 = 0;
+        if (x1 >= grid->nx) x1 = grid->nx - 1;
+        if (y0 < 0) y0 = 0;
+        if (y1 >= grid->ny) y1 = grid->ny - 1;
+        if (z0 < 0) z0 = 0;
+        if (z1 >= grid->nz) z1 = grid->nz - 1;
 
         for (int z = z0; z <= z1; z++) {
             for (int y = y0; y <= y1; y++) {
@@ -114,23 +117,6 @@ static void project_triangle(Vec3 v0, Vec3 v1, Vec3 v2, Vec3 axis, float *out_mi
     *out_max = fmaxf(p0, fmaxf(p1, p2));
 }
 
-// SAT test: project AABB onto axis
-static void project_aabb(AABB box, Vec3 axis, float *out_min, float *out_max) {
-    Vec3 center = {
-        (box.min.x + box.max.x) * 0.5f,
-        (box.min.y + box.max.y) * 0.5f,
-        (box.min.z + box.max.z) * 0.5f
-    };
-    Vec3 half = {
-        (box.max.x - box.min.x) * 0.5f,
-        (box.max.y - box.min.y) * 0.5f,
-        (box.max.z - box.min.z) * 0.5f
-    };
-    float c = vec3_dot(center, axis);
-    float r = half.x * fabsf(axis.x) + half.y * fabsf(axis.y) + half.z * fabsf(axis.z);
-    *out_min = c - r;
-    *out_max = c + r;
-}
 
 static bool ranges_overlap(float amin, float amax, float bmin, float bmax) {
     return amin <= bmax && bmin <= amax;
@@ -273,12 +259,6 @@ bool grid_check_aabb(const CollisionGrid *grid, AABB box, Vec3 *push_out) {
     Vec3 best_push = {0, 0, 0};
     float best_dot = -1.0f;
 
-    // AABB center for penetration calculation
-    Vec3 box_center = {
-        (box.min.x + box.max.x) * 0.5f,
-        (box.min.y + box.max.y) * 0.5f,
-        (box.min.z + box.max.z) * 0.5f
-    };
 
     for (int z = z0; z <= z1; z++) {
         for (int y = y0; y <= y1; y++) {
