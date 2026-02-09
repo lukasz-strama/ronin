@@ -281,123 +281,160 @@ static bool hud_button(const Font *font, int x, int y, int w, int h, const char 
     return hover && clicked;
 }
 
-static bool hud_checkbox(const Font *font, int x, int y, int w, int h, const char *text, bool *value, int mx, int my, bool clicked)
+// --- Clip-aware drawing for scrollable lists ---
+
+static int g_clip_top = 0;
+static int g_clip_bottom = RENDER_HEIGHT;
+static float settings_scroll = 0.0f;
+
+#define LIST_HEADER_H 16
+#define LIST_TOGGLE_H 18
+#define LIST_SLIDER_H 30
+#define LIST_GAP 8
+
+static void blit_clipped(int x, int y, int w, int h, uint32_t color)
 {
-    bool hover = (mx >= x && mx < x + w && my >= y && my < y + h);
-    uint32_t bg_color = hover ? 0xFF444444 : 0xFF222222;
-    uint32_t text_col = hover ? 0xFFFFFFFF : 0xFFAAAAAA;
-    uint32_t border_col = 0xFF888888;
+    int y0 = y < g_clip_top ? g_clip_top : y;
+    int y1 = (y + h) > g_clip_bottom ? g_clip_bottom : (y + h);
+    for (int py = y0; py < y1; py++)
+        for (int px = x; px < x + w; px++)
+            render_set_pixel(px, py, color);
+}
+
+static void text_clipped(const Font *font, int x, int y, const char *text, uint32_t color)
+{
+    if (y + FONT_GLYPH_H <= g_clip_top || y >= g_clip_bottom)
+        return;
+
+    int cursor_x = x;
+    for (int i = 0; text[i] != '\0'; i++)
+    {
+        char c = text[i];
+        if (c < FONT_FIRST_CHAR || c > FONT_LAST_CHAR)
+        {
+            cursor_x += FONT_GLYPH_W;
+            continue;
+        }
+        int index = c - FONT_FIRST_CHAR;
+        int col = index % font->cols;
+        int row = index / font->cols;
+        int ox = col * FONT_GLYPH_W;
+        int oy = row * FONT_GLYPH_H;
+
+        for (int py = 0; py < FONT_GLYPH_H; py++)
+        {
+            if (y + py < g_clip_top || y + py >= g_clip_bottom)
+                continue;
+            for (int px = 0; px < FONT_GLYPH_W; px++)
+            {
+                uint32_t ap = font->atlas.pixels[(oy + py) * font->atlas.width + (ox + px)];
+                if (ap & 0x00FFFFFF)
+                    render_set_pixel(cursor_x + px, y + py, color);
+            }
+        }
+        cursor_x += FONT_GLYPH_W;
+    }
+}
+
+static void draw_list_header(const Font *font, int x, int *y, int w, const char *text)
+{
+    int iy = *y;
+    *y += LIST_HEADER_H;
+    blit_clipped(x, iy, w, LIST_HEADER_H, 0xFF181818);
+    text_clipped(font, x + 6, iy + 4, text, 0xFFDDAA00);
+    blit_clipped(x + 4, iy + LIST_HEADER_H - 1, w - 8, 1, 0xFF444444);
+}
+
+static void draw_list_toggle(const Font *font, int x, int *y, int w,
+                             const char *label, bool *value,
+                             int mx, int my, bool clicked)
+{
+    int iy = *y;
+    *y += LIST_TOGGLE_H;
+    if (!value)
+        return;
+
+    bool vis = (iy + LIST_TOGGLE_H > g_clip_top && iy < g_clip_bottom);
+    bool hover = vis && (mx >= x && mx < x + w && my >= iy && my < iy + LIST_TOGGLE_H);
 
     if (hover && clicked)
         *value = !(*value);
 
-    // Draw box
-    hud_blit_rect(x, y, h, h, bg_color);
-    // Draw Border
-    for (int px = x; px < x + h; px++)
-    {
-        render_set_pixel(px, y, border_col);
-        render_set_pixel(px, y + h - 1, border_col);
-    }
-    for (int py = y; py < y + h; py++)
-    {
-        render_set_pixel(x, py, border_col);
-        render_set_pixel(x + h - 1, py, border_col);
-    }
+    blit_clipped(x, iy, w, LIST_TOGGLE_H, hover ? 0xFF2A2A2A : 0xFF1E1E1E);
 
-    // Checkmark
+    // Checkbox
+    int cb = 10;
+    int cbx = x + 8;
+    int cby = iy + (LIST_TOGGLE_H - cb) / 2;
+    blit_clipped(cbx, cby, cb, cb, 0xFF0A0A0A);
+    blit_clipped(cbx, cby, cb, 1, 0xFF555555);
+    blit_clipped(cbx, cby + cb - 1, cb, 1, 0xFF555555);
+    blit_clipped(cbx, cby, 1, cb, 0xFF555555);
+    blit_clipped(cbx + cb - 1, cby, 1, cb, 0xFF555555);
     if (*value)
-    {
-        int pad = 3;
-        hud_blit_rect(x + pad, y + pad, h - pad * 2, h - pad * 2, 0xFF00FF00);
-    }
+        blit_clipped(cbx + 2, cby + 2, cb - 4, cb - 4, 0xFF00CC00);
 
-    // Label
-    hud_draw_text(font, x + h + 8, y + (h - FONT_GLYPH_H) / 2, text, text_col);
-
-    return hover && clicked;
+    uint32_t tc = hover ? 0xFFFFFFFF : 0xFFCCCCCC;
+    text_clipped(font, cbx + cb + 6, iy + (LIST_TOGGLE_H - FONT_GLYPH_H) / 2, label, tc);
 }
 
-static bool hud_slider(const Font *font, int x, int y, int w, int h, const char *text, float *value, float min, float max, int mx, int my, bool mouse_down)
+static void draw_list_slider(const Font *font, int x, int *y, int w,
+                             const char *label, float *value,
+                             float vmin, float vmax,
+                             int mx, int my, bool mouse_down)
 {
-    bool hover = (mx >= x && mx < x + w && my >= y && my < y + h);
-    uint32_t bg_color = 0xFF222222;
-    uint32_t fill_color = 0xFF44AA44;
-    uint32_t empty_color = 0xFF444444;
-    uint32_t handle_color = hover ? 0xFFFFFFFF : 0xFFCCCCCC;
-    uint32_t text_col = hover ? 0xFFFFFFFF : 0xFFAAAAAA;
-    uint32_t border_col = 0xFF888888;
+    int iy = *y;
+    *y += LIST_SLIDER_H;
+    if (!value)
+        return;
 
-    // Allow dragging if mouse is down while hovering
-    if (mouse_down && hover)
+    bool vis = (iy + LIST_SLIDER_H > g_clip_top && iy < g_clip_bottom);
+    bool hover = vis && (mx >= x && mx < x + w && my >= iy && my < iy + LIST_SLIDER_H);
+
+    blit_clipped(x, iy, w, LIST_SLIDER_H, hover ? 0xFF2A2A2A : 0xFF1E1E1E);
+
+    uint32_t tc = hover ? 0xFFFFFFFF : 0xFFCCCCCC;
+    text_clipped(font, x + 8, iy + 2, label, tc);
+
+    char vbuf[16];
+    snprintf(vbuf, sizeof(vbuf), "%.0f", *value);
+    int vw = (int)strlen(vbuf) * FONT_GLYPH_W;
+    text_clipped(font, x + w - vw - 8, iy + 2, vbuf, tc);
+
+    // Slider track
+    int bar_x = x + 8;
+    int bar_y = iy + 14;
+    int bar_w = w - 16;
+    int bar_h = 12;
+
+    if (mouse_down && vis && mx >= bar_x && mx < bar_x + bar_w &&
+        my >= iy && my < iy + LIST_SLIDER_H)
     {
-        float t = (float)(mx - x) / (float)w;
+        float t = (float)(mx - bar_x) / (float)bar_w;
         if (t < 0)
             t = 0;
         if (t > 1)
             t = 1;
-        *value = min + t * (max - min);
+        *value = vmin + t * (vmax - vmin);
     }
 
-    // Text Label (Centered above)
-    int label_w = (int)strlen(text) * FONT_GLYPH_W;
-    int label_x = x + (w - label_w) / 2;
-    hud_draw_text(font, label_x, y - FONT_GLYPH_H - 4, text, text_col);
+    blit_clipped(bar_x, bar_y + bar_h / 2 - 2, bar_w, 4, 0xFF333333);
 
-    // Value Text (Top Right)
-    char val_buf[16];
-    snprintf(val_buf, sizeof(val_buf), "%.0f", *value);
-    int val_w = (int)strlen(val_buf) * FONT_GLYPH_W;
-    hud_draw_text(font, x + w - val_w, y - FONT_GLYPH_H - 4, val_buf, text_col);
-
-    // Background Container
-    hud_blit_rect(x, y, w, h, bg_color);
-
-    // Border
-    for (int px = x; px < x + w; px++)
-    {
-        render_set_pixel(px, y, border_col);
-        render_set_pixel(px, y + h - 1, border_col);
-    }
-    for (int py = y; py < y + h; py++)
-    {
-        render_set_pixel(x, py, border_col);
-        render_set_pixel(x + w - 1, py, border_col);
-    }
-
-    // Bar visualization
-    int pad = 4;
-    int bar_x = x + pad;
-    int bar_y = y + h / 2 - 2;
-    int bar_w = w - pad * 2;
-    int bar_h = 4;
-
-    float norm = (*value - min) / (max - min);
+    float norm = (*value - vmin) / (vmax - vmin);
     int fill_w = (int)(norm * bar_w);
-
-    // Empty part
-    hud_blit_rect(bar_x, bar_y, bar_w, bar_h, empty_color);
-    // Filled part
-    hud_blit_rect(bar_x, bar_y, fill_w, bar_h, fill_color);
+    blit_clipped(bar_x, bar_y + bar_h / 2 - 2, fill_w, 4, 0xFF44AA44);
 
     // Handle
-    int handle_w = 8;
-    int handle_h = h - 6;
-    int handle_x = bar_x + fill_w - handle_w / 2;
-
-    // Clamp handle within bar area
-    if (handle_x < bar_x)
-        handle_x = bar_x;
-    if (handle_x > bar_x + bar_w - handle_w)
-        handle_x = bar_x + bar_w - handle_w;
-
-    int handle_y = y + 3;
-    hud_blit_rect(handle_x, handle_y, handle_w, handle_h, handle_color);
-
-    return hover && mouse_down;
+    int hw = 6;
+    int hx = bar_x + fill_w - hw / 2;
+    if (hx < bar_x)
+        hx = bar_x;
+    if (hx > bar_x + bar_w - hw)
+        hx = bar_x + bar_w - hw;
+    blit_clipped(hx, bar_y + 1, hw, bar_h - 2, hover ? 0xFFFFFFFF : 0xFFBBBBBB);
 }
 
-int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, MenuState *state, MenuData *data)
+int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, int scroll_delta, MenuState *state, MenuData *data)
 {
     // Dim overlay
     for (int py = 0; py < RENDER_HEIGHT; py++)
@@ -421,7 +458,10 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
         start_y += btn_h + spacing;
 
         if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "SETTINGS", mx, my, clicked))
+        {
             *state = MENU_SETTINGS;
+            settings_scroll = 0.0f;
+        }
         start_y += btn_h + spacing;
 
         if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "CONSOLE", mx, my, clicked))
@@ -433,84 +473,133 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
     }
     else if (*state == MENU_SETTINGS)
     {
-        hud_draw_text(font, cx - (8 * FONT_GLYPH_W) / 2, cy - 60, "SETTINGS", 0xFFFFFFFF);
-        int start_y = cy - 20;
+        // --- Scrollable settings panel ---
+        int panel_w = 230;
+        int panel_h = 200;
+        int panel_x = cx - panel_w / 2;
+        int panel_y = cy - panel_h / 2;
 
-        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "VIDEO", mx, my, clicked))
-            *state = MENU_SETTINGS_VIDEO;
-        start_y += btn_h + spacing;
+        // Panel background + border
+        hud_blit_rect(panel_x, panel_y, panel_w, panel_h, 0xFF111111);
+        uint32_t brd = 0xFF444444;
+        for (int px = panel_x; px < panel_x + panel_w; px++)
+        {
+            render_set_pixel(px, panel_y, brd);
+            render_set_pixel(px, panel_y + panel_h - 1, brd);
+        }
+        for (int py = panel_y; py < panel_y + panel_h; py++)
+        {
+            render_set_pixel(panel_x, py, brd);
+            render_set_pixel(panel_x + panel_w - 1, py, brd);
+        }
 
-        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "GRAPHICS", mx, my, clicked))
-            *state = MENU_SETTINGS_GRAPHICS;
-        start_y += btn_h + spacing;
+        // Title
+        const char *title = "SETTINGS";
+        int tw = (int)strlen(title) * FONT_GLYPH_W;
+        hud_draw_text(font, panel_x + (panel_w - tw) / 2, panel_y + 4, title, 0xFFFFFFFF);
 
-        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "AUDIO", mx, my, clicked))
-            *state = MENU_SETTINGS_AUDIO;
-        start_y += btn_h + spacing;
+        // Separator below title
+        hud_blit_rect(panel_x + 4, panel_y + 15, panel_w - 8, 1, 0xFF333333);
 
-        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "BACK", mx, my, clicked))
-            *state = MENU_MAIN;
-    }
-    else if (*state == MENU_SETTINGS_GRAPHICS)
-    {
-        hud_draw_text(font, cx - (8 * FONT_GLYPH_W) / 2, cy - 60, "GRAPHICS", 0xFFFFFFFF);
-        int start_y = cy - 20;
+        // List area dimensions
+        int sb_w = 8;
+        int list_x = panel_x + 4;
+        int list_y = panel_y + 18;
+        int list_w = panel_w - 12 - sb_w;
+        int list_h = panel_h - 46;
 
-        int check_h = 16;
-        int check_w = 200; // ample width for text
-        int ox = cx - 60;  // offset left for checkbox
+        // Scrollbar area
+        int sb_x = panel_x + panel_w - sb_w - 4;
+        int sb_y = list_y;
+        int sb_h = list_h;
 
-        hud_checkbox(font, ox, start_y, check_w, check_h, "Frustum Culling", data->frustum_cull, mx, my, clicked);
-        start_y += check_h + spacing;
+        // Calculate total content height
+        int content_h = LIST_HEADER_H + LIST_TOGGLE_H * 3 + LIST_SLIDER_H + LIST_GAP + LIST_HEADER_H + LIST_TOGGLE_H * 2 + LIST_GAP + LIST_HEADER_H + LIST_TOGGLE_H * 4;
 
-        hud_checkbox(font, ox, start_y, check_w, check_h, "Backface Culling", data->backface_cull, mx, my, clicked);
-        start_y += check_h + spacing;
+        float max_scroll = (float)(content_h - list_h);
+        if (max_scroll < 0)
+            max_scroll = 0;
 
-        hud_checkbox(font, ox, start_y, check_w, check_h, "Wireframe Mode", data->wireframe, mx, my, clicked);
-        start_y += check_h + spacing;
+        // Apply scroll input
+        settings_scroll -= scroll_delta * LIST_TOGGLE_H;
+        if (settings_scroll < 0)
+            settings_scroll = 0;
+        if (settings_scroll > max_scroll)
+            settings_scroll = max_scroll;
 
+        // Set clip region
+        g_clip_top = list_y;
+        g_clip_bottom = list_y + list_h;
+
+        // List background
+        hud_blit_rect(list_x, list_y, list_w, list_h, 0xFF161616);
+
+        int iy = list_y - (int)settings_scroll;
+
+        // --- GRAPHICS ---
+        draw_list_header(font, list_x, &iy, list_w, "GRAPHICS");
+        draw_list_toggle(font, list_x, &iy, list_w, "Frustum Culling", data->frustum_cull, mx, my, clicked);
+        draw_list_toggle(font, list_x, &iy, list_w, "Backface Culling", data->backface_cull, mx, my, clicked);
+        draw_list_toggle(font, list_x, &iy, list_w, "Wireframe", data->wireframe, mx, my, clicked);
         if (data->fog_end)
+            draw_list_slider(font, list_x, &iy, list_w, "Fog Distance", data->fog_end, 50.0f, 1000.0f, mx, my, mouse_down);
+        iy += LIST_GAP;
+
+        // --- VIDEO ---
+        draw_list_header(font, list_x, &iy, list_w, "VIDEO");
+        draw_list_toggle(font, list_x, &iy, list_w, "VSync", data->vsync, mx, my, clicked);
+        draw_list_toggle(font, list_x, &iy, list_w, "Multithreading", data->threaded, mx, my, clicked);
+        iy += LIST_GAP;
+
+        // --- DEBUG ---
+        draw_list_header(font, list_x, &iy, list_w, "DEBUG");
+        draw_list_toggle(font, list_x, &iy, list_w, "HUD Info", data->debug_info, mx, my, clicked);
+        draw_list_toggle(font, list_x, &iy, list_w, "Draw AABBs", data->draw_aabb, mx, my, clicked);
+        draw_list_toggle(font, list_x, &iy, list_w, "Debug Rays", data->debug_rays, mx, my, clicked);
+        draw_list_toggle(font, list_x, &iy, list_w, "Debug Tiles", data->debug_tiles, mx, my, clicked);
+
+        // Reset clip
+        g_clip_top = 0;
+        g_clip_bottom = RENDER_HEIGHT;
+
+        // --- Scrollbar ---
+        if (content_h > list_h)
         {
-            start_y += 10;
-            int slider_x = cx - check_w / 2;
-            hud_slider(font, slider_x, start_y, check_w, check_h, "Fog Distance", data->fog_end, 50.0f, 1000.0f, mx, my, mouse_down);
-            start_y += check_h + spacing + 10;
+            // Track
+            hud_blit_rect(sb_x, sb_y, sb_w, sb_h, 0xFF222222);
+
+            // Thumb
+            float thumb_ratio = (float)list_h / (float)content_h;
+            int thumb_h = (int)(sb_h * thumb_ratio);
+            if (thumb_h < 12)
+                thumb_h = 12;
+
+            float scroll_ratio = (max_scroll > 0) ? settings_scroll / max_scroll : 0;
+            int thumb_y = sb_y + (int)(scroll_ratio * (sb_h - thumb_h));
+
+            bool sb_hover = (mx >= sb_x && mx < sb_x + sb_w &&
+                             my >= sb_y && my < sb_y + sb_h);
+            hud_blit_rect(sb_x + 1, thumb_y + 1, sb_w - 2, thumb_h - 2,
+                          sb_hover ? 0xFF999999 : 0xFF666666);
+
+            // Click/drag on track
+            if (mouse_down && sb_hover)
+            {
+                float click_pos = (float)(my - sb_y - thumb_h / 2) / (float)(sb_h - thumb_h);
+                if (click_pos < 0)
+                    click_pos = 0;
+                if (click_pos > 1)
+                    click_pos = 1;
+                settings_scroll = click_pos * max_scroll;
+            }
         }
 
-        if (hud_button(font, cx - btn_w / 2, start_y + 10, btn_w, btn_h, "BACK", mx, my, clicked))
-            *state = MENU_SETTINGS;
-    }
-    else if (*state == MENU_SETTINGS_VIDEO)
-    {
-        hud_draw_text(font, cx - (5 * FONT_GLYPH_W) / 2, cy - 60, "VIDEO", 0xFFFFFFFF);
-        int start_y = cy - 20;
+        // Separator above back button
+        int back_y = panel_y + panel_h - 24;
+        hud_blit_rect(panel_x + 4, back_y - 4, panel_w - 8, 1, 0xFF333333);
 
-        int check_h = 16;
-        int check_w = 200;
-        int ox = cx - 60;
-
-        if (data->vsync)
-        {
-            hud_checkbox(font, ox, start_y, check_w, check_h, "VSync", data->vsync, mx, my, clicked);
-            start_y += check_h + spacing;
-        }
-
-        if (data->threaded)
-        {
-            hud_checkbox(font, ox, start_y, check_w, check_h, "Multithreading", data->threaded, mx, my, clicked);
-            start_y += check_h + spacing;
-        }
-
-        if (hud_button(font, cx - btn_w / 2, start_y + 30, btn_w, btn_h, "BACK", mx, my, clicked))
-            *state = MENU_SETTINGS;
-    }
-    else if (*state == MENU_SETTINGS_AUDIO)
-    {
-        hud_draw_text(font, cx - (5 * FONT_GLYPH_W) / 2, cy - 60, "AUDIO", 0xFFFFFFFF);
-        int start_y = cy;
-        hud_draw_text(font, cx - 40, start_y, "(Empty)", 0xFFAAAAAA);
-        if (hud_button(font, cx - btn_w / 2, start_y + 30, btn_w, btn_h, "BACK", mx, my, clicked))
-            *state = MENU_SETTINGS;
+        if (hud_button(font, cx - btn_w / 2, back_y, btn_w, btn_h, "BACK", mx, my, clicked))
+            *state = MENU_MAIN;
     }
 
     return 0;

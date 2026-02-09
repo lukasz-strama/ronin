@@ -29,9 +29,6 @@ typedef enum
 {
     MENU_MAIN = 0,
     MENU_SETTINGS,
-    MENU_SETTINGS_GRAPHICS,
-    MENU_SETTINGS_AUDIO,
-    MENU_SETTINGS_VIDEO,
 } MenuState;
 
 typedef struct
@@ -41,12 +38,14 @@ typedef struct
     bool *wireframe;
     bool *debug_info;
     bool *draw_aabb;
+    bool *debug_rays;
+    bool *debug_tiles;
     float *fog_end;
     bool *vsync;
     bool *threaded;
 } MenuData;
 
-int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, MenuState *state, MenuData *data);
+int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, int scroll_delta, MenuState *state, MenuData *data);
 void hud_draw_cull_stats(const Font *font, const struct RenderStats *stats, int total_entities);
 
 #endif

@@ -261,6 +261,7 @@ int main(int argc, char *argv[])
     bool frustum_culling = true;
     MenuState menu_state = MENU_MAIN;
     bool mouse_down = false;
+    int menu_scroll_delta = 0;
 
     SDL_SetRelativeMouseMode(SDL_TRUE);
     LOG_INFO("Entering main loop (WASD + Mouse, ESC=Pause, ~=Console)");
@@ -272,6 +273,7 @@ int main(int argc, char *argv[])
         prev_time = curr_time;
 
         bool menu_clicked = false;
+        menu_scroll_delta = 0;
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
@@ -338,6 +340,10 @@ int main(int argc, char *argv[])
                 {
                     mouse_down = false;
                 }
+                else if (event.type == SDL_MOUSEWHEEL)
+                {
+                    menu_scroll_delta += event.wheel.y;
+                }
 
                 if (event.type == SDL_KEYDOWN)
                 {
@@ -350,13 +356,9 @@ int main(int argc, char *argv[])
                             SDL_SetRelativeMouseMode(SDL_TRUE);
                             LOG_INFO("Resumed");
                         }
-                        else if (menu_state == MENU_SETTINGS)
-                        {
-                            menu_state = MENU_MAIN;
-                        }
                         else
                         {
-                            menu_state = MENU_SETTINGS;
+                            menu_state = MENU_MAIN;
                         }
                     }
                     else if (key == SDLK_BACKQUOTE)
@@ -723,13 +725,15 @@ int main(int argc, char *argv[])
             menu_data.wireframe = &console.wireframe;
             menu_data.debug_info = &console.show_debug;
             menu_data.draw_aabb = &debug_aabb;
+            menu_data.debug_rays = &console.debug_rays;
+            menu_data.debug_tiles = &console.debug_tiles;
             menu_data.fog_end = &fog_end;
             menu_data.vsync = &vsync_enabled;
             menu_data.threaded = &threaded_enabled;
 
             bool old_vsync = vsync_enabled;
             bool old_threaded = threaded_enabled;
-            int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, mouse_down, &menu_state, &menu_data);
+            int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, mouse_down, menu_scroll_delta, &menu_state, &menu_data);
 
             if (old_vsync != vsync_enabled)
             {
