@@ -286,6 +286,7 @@ static bool hud_button(const Font *font, int x, int y, int w, int h, const char 
 static int g_clip_top = 0;
 static int g_clip_bottom = RENDER_HEIGHT;
 static float settings_scroll = 0.0f;
+static bool settings_input_blocked = false;
 
 #define LIST_HEADER_H 16
 #define LIST_TOGGLE_H 18
@@ -461,6 +462,7 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
         {
             *state = MENU_SETTINGS;
             settings_scroll = 0.0f;
+            settings_input_blocked = true;
         }
         start_y += btn_h + spacing;
 
@@ -473,6 +475,14 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
     }
     else if (*state == MENU_SETTINGS)
     {
+        if (settings_input_blocked)
+        {
+            if (!mouse_down)
+                settings_input_blocked = false;
+            clicked = false;
+            mouse_down = false;
+        }
+
         // --- Scrollable settings panel ---
         int panel_w = 230;
         int panel_h = 200;
