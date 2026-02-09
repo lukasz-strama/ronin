@@ -267,6 +267,10 @@ int level_load_map(const char *obj_path, Scene *scene, Camera *camera,
     if (chunk_grid_out)
         chunk_grid_free(chunk_grid_out);
 
+    // Free previous map data (textures, vertices, etc.)
+    if (map_out && map_out->vertices)
+        obj_mesh_free(map_out);
+
     // Load the OBJ file
     if (obj_load(map_out, obj_path) != 0)
     {

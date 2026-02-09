@@ -8,6 +8,9 @@
 static uint32_t *g_framebuffer = NULL;
 static float *g_zbuffer = NULL;
 
+int g_render_width = DEFAULT_RENDER_WIDTH;
+int g_render_height = DEFAULT_RENDER_HEIGHT;
+
 void render_set_framebuffer(uint32_t *buffer)
 {
     g_framebuffer = buffer;
@@ -18,6 +21,17 @@ void render_set_zbuffer(float *buffer)
 {
     g_zbuffer = buffer;
     LOG_INFO("Z-buffer initialized");
+}
+
+void render_set_resolution(int width, int height)
+{
+    if (width < 80)
+        width = 80;
+    if (height < 60)
+        height = 60;
+    g_render_width = width;
+    g_render_height = height;
+    LOG_INFO("Render resolution set to %dx%d", width, height);
 }
 
 static bool g_fog_enabled = false;
@@ -737,8 +751,6 @@ uint32_t render_shade_color(uint32_t base_color, float intensity)
     return 0xFF000000 | (r << 16) | (g << 8) | b;
 }
 
-// Clip a line segment in clip-space against the near plane (w = NEAR_W).
-// Returns false if the segment is entirely behind the near plane.
 static bool clip_line_near(Vec4 *a, Vec4 *b)
 {
 #define NEAR_W 0.1f

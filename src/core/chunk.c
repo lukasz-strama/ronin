@@ -30,8 +30,10 @@ static int compare_packets_asc(const void *a, const void *b)
 {
     float da = ((const RenderPacket *)a)->dist_sq;
     float db = ((const RenderPacket *)b)->dist_sq;
-    if (da < db) return -1;
-    if (da > db) return  1;
+    if (da < db)
+        return -1;
+    if (da > db)
+        return 1;
     return 0;
 }
 
@@ -49,6 +51,10 @@ int chunk_grid_build(ChunkGrid *grid, const OBJMesh *mesh, float cell_size)
 {
     if (!mesh || mesh->face_count == 0)
         return 1;
+
+    // Store texture reference from the source mesh
+    grid->textures = mesh->textures;
+    grid->texture_count = mesh->texture_count;
 
     // Determine grid dimensions from mesh AABB
     AABB b = mesh->bounds;
@@ -193,6 +199,7 @@ int chunk_grid_build(ChunkGrid *grid, const OBJMesh *mesh, float cell_size)
             ch->faces[f].b = remap[face.b];
             ch->faces[f].c = remap[face.c];
             ch->faces[f].color = face.color;
+            ch->faces[f].texture_id = face.texture_id;
         }
 
         // Compute AABB and bounding sphere from chunk vertices
@@ -251,6 +258,7 @@ static uint32_t s_chunk_gen = 0;
 static void render_chunk_flat(const WorldChunk *ch, Mat4 vp,
                               Vec3 cam_pos, Vec3 light_dir,
                               bool backface_cull,
+                              const Texture *textures, int texture_count,
                               int *bf_culled, int *tri_drawn,
                               int *clip_trivial)
 {
@@ -298,35 +306,85 @@ static void render_chunk_flat(const WorldChunk *ch, Mat4 vp,
         if (intensity < 0)
             intensity = 0;
         intensity = 0.15f + intensity * 0.85f;
-        uint32_t shaded = render_shade_color(face.color, intensity);
 
-        ClipPolygon poly;
-        poly.count = 3;
-        poly.vertices[0] = (ClipVertex){cv[0], 0, 0, shaded};
-        poly.vertices[1] = (ClipVertex){cv[1], 0, 0, shaded};
-        poly.vertices[2] = (ClipVertex){cv[2], 0, 0, shaded};
+        bool has_texture = face.texture_id >= 0 && face.texture_id < texture_count && textures != NULL;
 
-        ClipResult cr = clip_classify(&poly);
-        if (cr == CLIP_REJECT)
-            continue;
-        if (cr == CLIP_NEEDED && clip_polygon_against_frustum(&poly) < 3)
-            continue;
-        if (cr == CLIP_ACCEPT && clip_trivial)
-            (*clip_trivial)++;
-
-        ProjectedVertex pv0 = render_project_vertex(poly.vertices[0].position);
-        for (int j = 1; j < poly.count - 1; j++)
+        if (has_texture)
         {
-            ProjectedVertex pv1 = render_project_vertex(poly.vertices[j].position);
-            ProjectedVertex pv2 = render_project_vertex(poly.vertices[j + 1].position);
+            // Textured rendering with per-vertex UVs
+            const Texture *tex = &textures[face.texture_id];
+            float u0 = ch->vertices[idx[0]].u;
+            float v0 = ch->vertices[idx[0]].v;
+            float u1 = ch->vertices[idx[1]].u;
+            float v1 = ch->vertices[idx[1]].v;
+            float u2 = ch->vertices[idx[2]].u;
+            float v2 = ch->vertices[idx[2]].v;
 
-            render_fill_triangle_z(
-                (int)pv0.screen.x, (int)pv0.screen.y, pv0.z, poly.vertices[0].position.w,
-                (int)pv1.screen.x, (int)pv1.screen.y, pv1.z, poly.vertices[j].position.w,
-                (int)pv2.screen.x, (int)pv2.screen.y, pv2.z, poly.vertices[j + 1].position.w,
-                poly.vertices[0].color);
-            if (tri_drawn)
-                (*tri_drawn)++;
+            ClipPolygon poly;
+            poly.count = 3;
+            poly.vertices[0] = (ClipVertex){cv[0], u0, v0, 0};
+            poly.vertices[1] = (ClipVertex){cv[1], u1, v1, 0};
+            poly.vertices[2] = (ClipVertex){cv[2], u2, v2, 0};
+
+            ClipResult cr = clip_classify(&poly);
+            if (cr == CLIP_REJECT)
+                continue;
+            if (cr == CLIP_NEEDED && clip_polygon_against_frustum(&poly) < 3)
+                continue;
+            if (cr == CLIP_ACCEPT && clip_trivial)
+                (*clip_trivial)++;
+
+            ProjectedVertex pv0 = render_project_vertex(poly.vertices[0].position);
+            for (int j = 1; j < poly.count - 1; j++)
+            {
+                ProjectedVertex pv1 = render_project_vertex(poly.vertices[j].position);
+                ProjectedVertex pv2 = render_project_vertex(poly.vertices[j + 1].position);
+
+                render_fill_triangle_textured(
+                    (int)pv0.screen.x, (int)pv0.screen.y, pv0.z,
+                    poly.vertices[0].u, poly.vertices[0].v, poly.vertices[0].position.w,
+                    (int)pv1.screen.x, (int)pv1.screen.y, pv1.z,
+                    poly.vertices[j].u, poly.vertices[j].v, poly.vertices[j].position.w,
+                    (int)pv2.screen.x, (int)pv2.screen.y, pv2.z,
+                    poly.vertices[j + 1].u, poly.vertices[j + 1].v, poly.vertices[j + 1].position.w,
+                    tex, intensity);
+                if (tri_drawn)
+                    (*tri_drawn)++;
+            }
+        }
+        else
+        {
+            // Flat shaded fallback
+            uint32_t shaded = render_shade_color(face.color, intensity);
+
+            ClipPolygon poly;
+            poly.count = 3;
+            poly.vertices[0] = (ClipVertex){cv[0], 0, 0, shaded};
+            poly.vertices[1] = (ClipVertex){cv[1], 0, 0, shaded};
+            poly.vertices[2] = (ClipVertex){cv[2], 0, 0, shaded};
+
+            ClipResult cr = clip_classify(&poly);
+            if (cr == CLIP_REJECT)
+                continue;
+            if (cr == CLIP_NEEDED && clip_polygon_against_frustum(&poly) < 3)
+                continue;
+            if (cr == CLIP_ACCEPT && clip_trivial)
+                (*clip_trivial)++;
+
+            ProjectedVertex pv0 = render_project_vertex(poly.vertices[0].position);
+            for (int j = 1; j < poly.count - 1; j++)
+            {
+                ProjectedVertex pv1 = render_project_vertex(poly.vertices[j].position);
+                ProjectedVertex pv2 = render_project_vertex(poly.vertices[j + 1].position);
+
+                render_fill_triangle_z(
+                    (int)pv0.screen.x, (int)pv0.screen.y, pv0.z, poly.vertices[0].position.w,
+                    (int)pv1.screen.x, (int)pv1.screen.y, pv1.z, poly.vertices[j].position.w,
+                    (int)pv2.screen.x, (int)pv2.screen.y, pv2.z, poly.vertices[j + 1].position.w,
+                    poly.vertices[0].color);
+                if (tri_drawn)
+                    (*tri_drawn)++;
+            }
         }
     }
 }
@@ -447,7 +505,9 @@ void chunk_grid_render(const ChunkGrid *grid, Mat4 vp,
     for (int i = 0; i < packet_count; i++)
     {
         render_chunk_flat(packets[i].chunk, vp, camera_pos, light_dir,
-                          backface_cull, &bf_culled, &tri_drawn, &clip_triv);
+                          backface_cull,
+                          grid->textures, grid->texture_count,
+                          &bf_culled, &tri_drawn, &clip_triv);
     }
 
     if (stats_out)

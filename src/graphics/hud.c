@@ -284,7 +284,7 @@ static bool hud_button(const Font *font, int x, int y, int w, int h, const char 
 // --- Clip-aware drawing for scrollable lists ---
 
 static int g_clip_top = 0;
-static int g_clip_bottom = RENDER_HEIGHT;
+static int g_clip_bottom = DEFAULT_RENDER_HEIGHT;
 static float settings_scroll = 0.0f;
 static bool settings_input_blocked = false;
 
@@ -377,6 +377,40 @@ static void draw_list_toggle(const Font *font, int x, int *y, int w,
 
     uint32_t tc = hover ? 0xFFFFFFFF : 0xFFCCCCCC;
     text_clipped(font, cbx + cb + 6, iy + (LIST_TOGGLE_H - FONT_GLYPH_H) / 2, label, tc);
+}
+
+#define LIST_DROPDOWN_H 18
+
+static void draw_list_dropdown(const Font *font, int x, int *y, int w,
+                               const char *label, int *index,
+                               const char **options, int option_count,
+                               int mx, int my, bool clicked)
+{
+    int iy = *y;
+    *y += LIST_DROPDOWN_H;
+    if (!index)
+        return;
+
+    bool vis = (iy + LIST_DROPDOWN_H > g_clip_top && iy < g_clip_bottom);
+    bool hover = vis && (mx >= x && mx < x + w && my >= iy && my < iy + LIST_DROPDOWN_H);
+
+    if (hover && clicked)
+    {
+        *index = (*index + 1) % option_count;
+    }
+
+    blit_clipped(x, iy, w, LIST_DROPDOWN_H, hover ? 0xFF2A2A2A : 0xFF1E1E1E);
+
+    uint32_t tc = hover ? 0xFFFFFFFF : 0xFFCCCCCC;
+    text_clipped(font, x + 8, iy + (LIST_DROPDOWN_H - FONT_GLYPH_H) / 2, label, tc);
+
+    // Draw current value right-aligned with arrow indicators
+    const char *val = (*index >= 0 && *index < option_count) ? options[*index] : "???";
+    char buf[32];
+    snprintf(buf, sizeof(buf), "< %s >", val);
+    int vw = (int)strlen(buf) * FONT_GLYPH_W;
+    text_clipped(font, x + w - vw - 8, iy + (LIST_DROPDOWN_H - FONT_GLYPH_H) / 2,
+                 buf, hover ? 0xFF00FF00 : 0xFF88CC88);
 }
 
 static void draw_list_slider(const Font *font, int x, int *y, int w,
@@ -524,7 +558,7 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
         int sb_h = list_h;
 
         // Calculate total content height
-        int content_h = LIST_HEADER_H + LIST_TOGGLE_H * 3 + LIST_SLIDER_H + LIST_GAP + LIST_HEADER_H + LIST_TOGGLE_H * 2 + LIST_GAP + LIST_HEADER_H + LIST_TOGGLE_H * 4;
+        int content_h = LIST_HEADER_H + LIST_TOGGLE_H * 3 + LIST_SLIDER_H + LIST_GAP + LIST_HEADER_H + LIST_TOGGLE_H * 2 + LIST_DROPDOWN_H + LIST_GAP + LIST_HEADER_H + LIST_TOGGLE_H * 4;
 
         float max_scroll = (float)(content_h - list_h);
         if (max_scroll < 0)
@@ -559,6 +593,11 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
         draw_list_header(font, list_x, &iy, list_w, "VIDEO");
         draw_list_toggle(font, list_x, &iy, list_w, "VSync", data->vsync, mx, my, clicked);
         draw_list_toggle(font, list_x, &iy, list_w, "Multithreading", data->threaded, mx, my, clicked);
+        {
+            static const char *res_labels[] = {"320x240", "640x480", "800x600"};
+            draw_list_dropdown(font, list_x, &iy, list_w, "Resolution",
+                               data->resolution_index, res_labels, 3, mx, my, clicked);
+        }
         iy += LIST_GAP;
 
         // --- DEBUG ---

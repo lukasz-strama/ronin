@@ -43,6 +43,7 @@ typedef struct
     float *fog_end;
     bool *vsync;
     bool *threaded;
+    int *resolution_index;
 } MenuData;
 
 int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, int scroll_delta, MenuState *state, MenuData *data);

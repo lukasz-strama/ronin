@@ -118,6 +118,15 @@ bool camera_try_move(Camera *cam, Vec3 delta)
             break;
         }
     }
+    if (!blocked_x && cam->map_grid)
+    {
+        Vec3 push;
+        if (grid_check_aabb(cam->map_grid, box_x, &push))
+        {
+            if (fabsf(push.x) > 0.001f)
+                blocked_x = true;
+        }
+    }
     if (!blocked_x)
         new_pos.x = test_x.x;
     else
@@ -135,12 +144,21 @@ bool camera_try_move(Camera *cam, Vec3 delta)
             break;
         }
     }
+    if (!blocked_z && cam->map_grid)
+    {
+        Vec3 push;
+        if (grid_check_aabb(cam->map_grid, box_z, &push))
+        {
+            if (fabsf(push.z) > 0.001f)
+                blocked_z = true;
+        }
+    }
     if (!blocked_z)
         new_pos.z = test_z.z;
     else
         blocked = true;
 
-    // Check map grid collision
+    // Final push-out for any remaining penetration
     if (cam->map_grid)
     {
         AABB test_box = aabb_from_center_size(new_pos, half);

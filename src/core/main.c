@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "core/log.h"
@@ -34,8 +35,8 @@
 
 #define PI 3.14159265358979323846f
 
-static uint32_t framebuffer[RENDER_WIDTH * RENDER_HEIGHT];
-static float zbuffer[RENDER_WIDTH * RENDER_HEIGHT];
+static uint32_t *framebuffer = NULL;
+static float *zbuffer = NULL;
 
 int main(int argc, char *argv[])
 {
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
         SDL_WINDOWPOS_CENTERED,
         WINDOW_WIDTH,
         WINDOW_HEIGHT,
-        0);
+        SDL_WINDOW_RESIZABLE);
 
     if (!window)
     {
@@ -84,6 +85,18 @@ int main(int argc, char *argv[])
     if (!texture)
     {
         LOG_ERROR("SDL_CreateTexture failed: %s", SDL_GetError());
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+
+    framebuffer = malloc(g_render_width * g_render_height * sizeof(uint32_t));
+    zbuffer = malloc(g_render_width * g_render_height * sizeof(float));
+    if (!framebuffer || !zbuffer)
+    {
+        LOG_ERROR("Failed to allocate render buffers");
+        SDL_DestroyTexture(texture);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -176,6 +189,11 @@ int main(int argc, char *argv[])
     float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
     Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 10000.0f);
 
+    int window_width = WINDOW_WIDTH;
+    int window_height = WINDOW_HEIGHT;
+    int tracked_rw = g_render_width;
+    int tracked_rh = g_render_height;
+
     Camera camera;
     camera_init(&camera, (Vec3){0, 2, 0}, 0.0f, 0.0f);
 
@@ -224,6 +242,7 @@ int main(int argc, char *argv[])
     bool debug_aabb = false;
     bool vsync_enabled = true;
     bool threaded_enabled = false;
+    int resolution_index = 1; // 0=320x240, 1=640x480, 2=800x600
 
     CommandContext cmd_ctx;
     cmd_ctx.scene = &scene;
@@ -281,6 +300,14 @@ int main(int argc, char *argv[])
             {
                 running = false;
                 break;
+            }
+
+            if (event.type == SDL_WINDOWEVENT &&
+                event.window.event == SDL_WINDOWEVENT_RESIZED)
+            {
+                window_width = event.window.data1;
+                window_height = event.window.data2;
+                LOG_INFO("Window resized: %dx%d", window_width, window_height);
             }
 
             // --- Console mode input ---
@@ -453,6 +480,29 @@ int main(int argc, char *argv[])
                 else if (event.button.button == SDL_BUTTON_RIGHT)
                     select_requested = true;
             }
+        }
+
+        // --- Resolution change detection ---
+        if (g_render_width != tracked_rw || g_render_height != tracked_rh)
+        {
+            tracked_rw = g_render_width;
+            tracked_rh = g_render_height;
+
+            free(framebuffer);
+            free(zbuffer);
+            framebuffer = malloc(tracked_rw * tracked_rh * sizeof(uint32_t));
+            zbuffer = malloc(tracked_rw * tracked_rh * sizeof(float));
+            render_set_framebuffer(framebuffer);
+            render_set_zbuffer(zbuffer);
+
+            SDL_DestroyTexture(texture);
+            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                                        SDL_TEXTUREACCESS_STREAMING,
+                                        tracked_rw, tracked_rh);
+
+            aspect = (float)tracked_rw / (float)tracked_rh;
+            proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 10000.0f);
+            LOG_INFO("Render buffers resized: %dx%d", tracked_rw, tracked_rh);
         }
 
         // --- Update (only while playing) ---
@@ -713,8 +763,8 @@ int main(int argc, char *argv[])
         {
             int mx, my;
             SDL_GetMouseState(&mx, &my);
-            int rmx = (int)(mx * ((float)RENDER_WIDTH / WINDOW_WIDTH));
-            int rmy = (int)(my * ((float)RENDER_HEIGHT / WINDOW_HEIGHT));
+            int rmx = (int)(mx * ((float)RENDER_WIDTH / window_width));
+            int rmy = (int)(my * ((float)RENDER_HEIGHT / window_height));
 
             bool fog_enabled;
             render_get_fog(&fog_enabled, &fog_start, &fog_end, &fog_color);
@@ -730,7 +780,9 @@ int main(int argc, char *argv[])
             menu_data.fog_end = &fog_end;
             menu_data.vsync = &vsync_enabled;
             menu_data.threaded = &threaded_enabled;
+            menu_data.resolution_index = &resolution_index;
 
+            int old_res_index = resolution_index;
             bool old_vsync = vsync_enabled;
             bool old_threaded = threaded_enabled;
             int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, mouse_down, menu_scroll_delta, &menu_state, &menu_data);
@@ -750,6 +802,13 @@ int main(int argc, char *argv[])
             if (old_threaded != threaded_enabled)
             {
                 render_set_threaded(threaded_enabled);
+            }
+
+            if (old_res_index != resolution_index)
+            {
+                static const int res_table[][2] = {{320, 240}, {640, 480}, {800, 600}};
+                render_set_resolution(res_table[resolution_index][0],
+                                      res_table[resolution_index][1]);
             }
 
             render_set_fog(fog_enabled, fog_start, fog_end, fog_color);
@@ -788,9 +847,12 @@ int main(int argc, char *argv[])
     threadpool_shutdown();
     chunk_grid_free(&chunk_grid);
     grid_free(&collision_grid);
+    obj_mesh_free(&loaded_map);
     obj_mesh_free(&teapot);
     hud_font_free(&hud_font);
     texture_free(&floor_tex);
+    free(framebuffer);
+    free(zbuffer);
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

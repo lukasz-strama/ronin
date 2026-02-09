@@ -5,8 +5,14 @@
 #include "graphics/texture.h"
 #include "math/math.h"
 
-#define RENDER_WIDTH 320
-#define RENDER_HEIGHT 240
+#define DEFAULT_RENDER_WIDTH 640
+#define DEFAULT_RENDER_HEIGHT 480
+
+extern int g_render_width;
+extern int g_render_height;
+
+#define RENDER_WIDTH g_render_width
+#define RENDER_HEIGHT g_render_height
 
 void render_set_framebuffer(uint32_t *buffer);
 void render_set_zbuffer(float *buffer);
@@ -55,5 +61,7 @@ void render_begin_commands(void);
 void render_flush_commands(void);
 int render_get_cmd_count(void);
 void render_draw_tile_debug(void);
+
+void render_set_resolution(int width, int height);
 
 #endif

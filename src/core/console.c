@@ -217,6 +217,7 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, " simd <0/1>         - (experimental)");
         console_log(con, " threads <0/1>      - multithreading");
         console_log(con, " threads_count <N>  - set thread count");
+        console_log(con, " resolution <W> <H> - render size");
         console_log(con, " toggle wireframe   - wireframe");
         console_log(con, " toggle backface    - backface cull");
         console_log(con, " toggle aabb        - bounding box");
@@ -564,8 +565,14 @@ void console_execute(Console *con, CommandContext *ctx)
         threadpool_shutdown();
         threadpool_init(count);
         console_log(con, "Thread pool resized: %d workers", count);
-    }
-    // --- unknown command ---
+    } // --- resolution <w> <h> ---
+    else if (strcmp(tokens[0], "resolution") == 0 && ntokens >= 3)
+    {
+        int w = atoi(tokens[1]);
+        int h = atoi(tokens[2]);
+        render_set_resolution(w, h);
+        console_log(con, "Resolution: %dx%d", g_render_width, g_render_height);
+    } // --- unknown command ---
     else
     {
         console_log(con, "Unknown command: %s", tokens[0]);
