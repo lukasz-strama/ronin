@@ -49,4 +49,11 @@ uint32_t render_shade_color(uint32_t base_color, float intensity);
 
 void render_set_simd(bool enabled);
 
+void render_set_threaded(bool enabled);
+bool render_get_threaded(void);
+void render_begin_commands(void);
+void render_flush_commands(void);
+int render_get_cmd_count(void);
+void render_draw_tile_debug(void);
+
 #endif

@@ -3,7 +3,7 @@
 
 CC      = gcc
 CFLAGS  = -std=c23 -Wall -Wextra -pedantic -g -march=native -DUSE_SIMD
-LDFLAGS = $(shell pkg-config --libs sdl2) -lm
+LDFLAGS = $(shell pkg-config --libs sdl2) -lm -lpthread
 CFLAGS += $(shell pkg-config --cflags sdl2)
 CFLAGS += -I src
 
@@ -18,6 +18,7 @@ SRC     = src/core/main.c \
           src/core/level.c \
           src/core/collision_grid.c \
           src/core/chunk.c \
+          src/core/threads.c \
           src/math/math.c \
           src/graphics/render.c \
           src/graphics/mesh.c \

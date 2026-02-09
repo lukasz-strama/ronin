@@ -1,5 +1,6 @@
 #include "graphics/render.h"
 #include "core/log.h"
+#include "core/threads.h"
 #include <stdlib.h>
 #include <stdbool.h>
 #include <float.h>
@@ -24,8 +25,26 @@ static float g_fog_start = 10.0f;
 static float g_fog_end = 50.0f;
 static uint32_t g_fog_color = 0xFF818181; // Grey
 
-static uint32_t g_skybox_top = 0xFF0000AA; // Deep blue
+static uint32_t g_skybox_top = 0xFF0000AA;    // Deep blue
 static uint32_t g_skybox_bottom = 0xFF808080; // Grey
+
+#define MAX_RENDER_CMDS 65536
+
+typedef struct
+{
+    int x0, y0, x1, y1, x2, y2;
+    float z0, z1, z2;
+    float w0, w1, w2;
+    float u0, v0, u1, v1, u2, v2;
+    const Texture *tex;
+    float light;
+    uint32_t color;
+    bool textured;
+} RenderCmd;
+
+static RenderCmd g_cmd_buffer[MAX_RENDER_CMDS];
+static int g_cmd_count = 0;
+static bool g_threaded = false;
 
 void render_set_fog(bool enabled, float start, float end, uint32_t color)
 {
@@ -37,10 +56,14 @@ void render_set_fog(bool enabled, float start, float end, uint32_t color)
 
 void render_get_fog(bool *enabled, float *start, float *end, uint32_t *color)
 {
-    if (enabled) *enabled = g_fog_enabled;
-    if (start) *start = g_fog_start;
-    if (end) *end = g_fog_end;
-    if (color) *color = g_fog_color;
+    if (enabled)
+        *enabled = g_fog_enabled;
+    if (start)
+        *start = g_fog_start;
+    if (end)
+        *end = g_fog_end;
+    if (color)
+        *color = g_fog_color;
 }
 
 void render_set_skybox(uint32_t top, uint32_t bottom)
@@ -51,14 +74,18 @@ void render_set_skybox(uint32_t top, uint32_t bottom)
 
 void render_get_skybox(uint32_t *top, uint32_t *bottom)
 {
-    if (top) *top = g_skybox_top;
-    if (bottom) *bottom = g_skybox_bottom;
+    if (top)
+        *top = g_skybox_top;
+    if (bottom)
+        *bottom = g_skybox_bottom;
 }
 
 static uint32_t blend_colors(uint32_t c1, uint32_t c2, float t)
 {
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
+    if (t < 0)
+        t = 0;
+    if (t > 1)
+        t = 1;
 
     uint8_t r1 = (c1 >> 16) & 0xFF;
     uint8_t g1 = (c1 >> 8) & 0xFF;
@@ -275,6 +302,29 @@ void render_fill_triangle_z(
     int x2, int y2, float z2, float w2,
     uint32_t color)
 {
+    if (g_threaded && threadpool_is_active())
+    {
+        if (g_cmd_count < MAX_RENDER_CMDS)
+        {
+            RenderCmd *cmd = &g_cmd_buffer[g_cmd_count++];
+            cmd->x0 = x0;
+            cmd->y0 = y0;
+            cmd->x1 = x1;
+            cmd->y1 = y1;
+            cmd->x2 = x2;
+            cmd->y2 = y2;
+            cmd->z0 = z0;
+            cmd->z1 = z1;
+            cmd->z2 = z2;
+            cmd->w0 = w0;
+            cmd->w1 = w1;
+            cmd->w2 = w2;
+            cmd->color = color;
+            cmd->textured = false;
+        }
+        return;
+    }
+
     // Bounding box
     int min_x = min3(x0, x1, x2);
     int max_x = max3(x0, x1, x2);
@@ -347,13 +397,18 @@ static void render_fill_triangle_simd(
     int min_y = min3(y0, y1, y2);
     int max_y = max3(y0, y1, y2);
 
-    if (min_x < 0) min_x = 0;
-    if (min_y < 0) min_y = 0;
-    if (max_x >= RENDER_WIDTH) max_x = RENDER_WIDTH - 1;
-    if (max_y >= RENDER_HEIGHT) max_y = RENDER_HEIGHT - 1;
+    if (min_x < 0)
+        min_x = 0;
+    if (min_y < 0)
+        min_y = 0;
+    if (max_x >= RENDER_WIDTH)
+        max_x = RENDER_WIDTH - 1;
+    if (max_y >= RENDER_HEIGHT)
+        max_y = RENDER_HEIGHT - 1;
 
     float area = edge_func(x0, y0, x1, y1, x2, y2);
-    if (area == 0) return;
+    if (area == 0)
+        return;
     float inv_area = 1.0f / area;
 
     float inv_w0 = 1.0f / w0_clip;
@@ -408,18 +463,19 @@ static void render_fill_triangle_simd(
             __m128 mask0 = _mm_cmpge_ps(v_bary0, v_zeros);
             __m128 mask1 = _mm_cmpge_ps(v_bary1, v_zeros);
             __m128 mask2 = _mm_cmpge_ps(v_bary2, v_zeros);
-            
+
             __m128 mask_pos = _mm_and_ps(_mm_and_ps(mask0, mask1), mask2);
-            
+
             __m128 mask0_neg = _mm_cmple_ps(v_bary0, v_zeros);
             __m128 mask1_neg = _mm_cmple_ps(v_bary1, v_zeros);
             __m128 mask2_neg = _mm_cmple_ps(v_bary2, v_zeros);
             __m128 mask_neg = _mm_and_ps(_mm_and_ps(mask0_neg, mask1_neg), mask2_neg);
-            
+
             __m128 mask = _mm_or_ps(mask_pos, mask_neg);
 
             int mask_bits = _mm_movemask_ps(mask);
-            if (mask_bits == 0) continue;
+            if (mask_bits == 0)
+                continue;
 
             v_bary0 = _mm_mul_ps(v_bary0, v_inv_area);
             v_bary1 = _mm_mul_ps(v_bary1, v_inv_area);
@@ -428,32 +484,29 @@ static void render_fill_triangle_simd(
             // Z = b0*z0 + b1*z1 + b2*z2
             __m128 v_z = _mm_add_ps(
                 _mm_add_ps(_mm_mul_ps(v_bary0, v_z0), _mm_mul_ps(v_bary1, v_z1)),
-                _mm_mul_ps(v_bary2, v_z2)
-            );
+                _mm_mul_ps(v_bary2, v_z2));
 
             int idx = y * RENDER_WIDTH + x;
             __m128 v_zbuf = _mm_loadu_ps(&g_zbuffer[idx]);
             __m128 z_mask = _mm_cmplt_ps(v_z, v_zbuf);
-            
+
             mask = _mm_and_ps(mask, z_mask);
             mask_bits = _mm_movemask_ps(mask);
-            if (mask_bits == 0) continue;
+            if (mask_bits == 0)
+                continue;
 
             __m128 v_interp_inv_w = _mm_add_ps(
                 _mm_add_ps(_mm_mul_ps(v_bary0, v_inv_w0), _mm_mul_ps(v_bary1, v_inv_w1)),
-                _mm_mul_ps(v_bary2, v_inv_w2)
-            );
-            
+                _mm_mul_ps(v_bary2, v_inv_w2));
+
             __m128 v_interp_u = _mm_add_ps(
                 _mm_add_ps(_mm_mul_ps(v_bary0, v_u0w), _mm_mul_ps(v_bary1, v_u1w)),
-                _mm_mul_ps(v_bary2, v_u2w)
-            );
-            
+                _mm_mul_ps(v_bary2, v_u2w));
+
             __m128 v_interp_v = _mm_add_ps(
                 _mm_add_ps(_mm_mul_ps(v_bary0, v_v0w), _mm_mul_ps(v_bary1, v_v1w)),
-                _mm_mul_ps(v_bary2, v_v2w)
-            );
-            
+                _mm_mul_ps(v_bary2, v_v2w));
+
             __m128 v_u = _mm_div_ps(v_interp_u, v_interp_inv_w);
             __m128 v_v = _mm_div_ps(v_interp_v, v_interp_inv_w);
             __m128 v_w = _mm_rcp_ps(v_interp_inv_w);
@@ -463,7 +516,7 @@ static void render_fill_triangle_simd(
             _mm_storeu_ps(us, v_u);
             _mm_storeu_ps(vs, v_v);
             _mm_storeu_ps(ws, v_w);
-            
+
             for (int i = 0; i < 4; i++)
             {
                 if ((mask_bits >> i) & 1)
@@ -482,48 +535,49 @@ static void render_fill_triangle_simd(
                 }
             }
         }
-        
+
         for (; x <= max_x; x++)
         {
-             float bary0 = edge_func(x1, y1, x2, y2, x, y);
-             float bary1 = edge_func(x2, y2, x0, y0, x, y);
-             float bary2 = edge_func(x0, y0, x1, y1, x, y);
+            float bary0 = edge_func(x1, y1, x2, y2, x, y);
+            float bary1 = edge_func(x2, y2, x0, y0, x, y);
+            float bary2 = edge_func(x0, y0, x1, y1, x, y);
 
-             if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) ||
-                 (bary0 <= 0 && bary1 <= 0 && bary2 <= 0))
-             {
-                 bary0 /= area;
-                 bary1 /= area;
-                 bary2 /= area;
+            if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) ||
+                (bary0 <= 0 && bary1 <= 0 && bary2 <= 0))
+            {
+                bary0 /= area;
+                bary1 /= area;
+                bary2 /= area;
 
-                 float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
-                 int idx = y * RENDER_WIDTH + x;
-                 if (z >= g_zbuffer[idx]) continue;
+                float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
+                int idx = y * RENDER_WIDTH + x;
+                if (z >= g_zbuffer[idx])
+                    continue;
 
-                 float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
-                 float interp_u_over_w = bary0 * u0_over_w + bary1 * u1_over_w + bary2 * u2_over_w;
-                 float interp_v_over_w = bary0 * v0_over_w + bary1 * v1_over_w + bary2 * v2_over_w;
-                 float u = interp_u_over_w / interp_inv_w;
-                 float v = interp_v_over_w / interp_inv_w;
+                float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
+                float interp_u_over_w = bary0 * u0_over_w + bary1 * u1_over_w + bary2 * u2_over_w;
+                float interp_v_over_w = bary0 * v0_over_w + bary1 * v1_over_w + bary2 * v2_over_w;
+                float u = interp_u_over_w / interp_inv_w;
+                float v = interp_v_over_w / interp_inv_w;
 
-                 uint32_t tex_color = texture_sample(tex, u, v);
-                 uint8_t r = (uint8_t)(((tex_color >> 16) & 0xFF) * light_intensity);
-                 uint8_t g = (uint8_t)(((tex_color >> 8) & 0xFF) * light_intensity);
-                 uint8_t b = (uint8_t)((tex_color & 0xFF) * light_intensity);
-                 uint32_t lit_color = 0xFF000000 | (r << 16) | (g << 8) | b;
-                 float w = 1.0f / interp_inv_w;
-                 uint32_t final_color = apply_fog(lit_color, w);
+                uint32_t tex_color = texture_sample(tex, u, v);
+                uint8_t r = (uint8_t)(((tex_color >> 16) & 0xFF) * light_intensity);
+                uint8_t g = (uint8_t)(((tex_color >> 8) & 0xFF) * light_intensity);
+                uint8_t b = (uint8_t)((tex_color & 0xFF) * light_intensity);
+                uint32_t lit_color = 0xFF000000 | (r << 16) | (g << 8) | b;
+                float w = 1.0f / interp_inv_w;
+                uint32_t final_color = apply_fog(lit_color, w);
 
-                 g_zbuffer[idx] = z;
-                 g_framebuffer[idx] = final_color;
-             }
+                g_zbuffer[idx] = z;
+                g_framebuffer[idx] = final_color;
+            }
         }
     }
 }
 #endif // USE_SIMD
 
 // SIMD Flag (run-time toggle)
-static bool g_simd_enabled = false; 
+static bool g_simd_enabled = false;
 
 void render_set_simd(bool enabled)
 {
@@ -537,6 +591,36 @@ void render_fill_triangle_textured(
     int x2, int y2, float z2, float u2, float v2, float w2_clip,
     const Texture *tex, float light_intensity)
 {
+    if (g_threaded && threadpool_is_active())
+    {
+        if (g_cmd_count < MAX_RENDER_CMDS)
+        {
+            RenderCmd *cmd = &g_cmd_buffer[g_cmd_count++];
+            cmd->x0 = x0;
+            cmd->y0 = y0;
+            cmd->x1 = x1;
+            cmd->y1 = y1;
+            cmd->x2 = x2;
+            cmd->y2 = y2;
+            cmd->z0 = z0;
+            cmd->z1 = z1;
+            cmd->z2 = z2;
+            cmd->w0 = w0_clip;
+            cmd->w1 = w1_clip;
+            cmd->w2 = w2_clip;
+            cmd->u0 = u0;
+            cmd->v0 = v0;
+            cmd->u1 = u1;
+            cmd->v1 = v1;
+            cmd->u2 = u2;
+            cmd->v2 = v2;
+            cmd->tex = tex;
+            cmd->light = light_intensity;
+            cmd->textured = true;
+        }
+        return;
+    }
+
 #ifdef USE_SIMD
     if (g_simd_enabled)
     {
@@ -614,7 +698,7 @@ void render_fill_triangle_textured(
                 uint8_t b = (uint8_t)((tex_color & 0xFF) * light_intensity);
 
                 uint32_t lit_color = 0xFF000000 | (r << 16) | (g << 8) | b;
-                
+
                 // Fog
                 float w = 1.0f / interp_inv_w;
                 uint32_t final_color = apply_fog(lit_color, w);
@@ -750,4 +834,279 @@ void render_draw_3d_line(Vec3 start, Vec3 end, Mat4 vp, uint32_t color)
     int y1 = (int)((1.0f - b.y * inv_wb) * 0.5f * RENDER_HEIGHT);
 
     render_draw_line(x0, y0, x1, y1, color);
+}
+
+static void tile_fill_z(const RenderCmd *cmd,
+                        int tx, int ty, int tw, int th)
+{
+    int min_x = min3(cmd->x0, cmd->x1, cmd->x2);
+    int max_x = max3(cmd->x0, cmd->x1, cmd->x2);
+    int min_y = min3(cmd->y0, cmd->y1, cmd->y2);
+    int max_y = max3(cmd->y0, cmd->y1, cmd->y2);
+
+    if (min_x < tx)
+        min_x = tx;
+    if (min_y < ty)
+        min_y = ty;
+    if (max_x > tx + tw - 1)
+        max_x = tx + tw - 1;
+    if (max_y > ty + th - 1)
+        max_y = ty + th - 1;
+
+    if (min_x > max_x || min_y > max_y)
+        return;
+
+    float area = edge_func(cmd->x0, cmd->y0, cmd->x1, cmd->y1, cmd->x2, cmd->y2);
+    if (area == 0)
+        return;
+
+    float inv_w0 = 1.0f / cmd->w0;
+    float inv_w1 = 1.0f / cmd->w1;
+    float inv_w2 = 1.0f / cmd->w2;
+
+    for (int y = min_y; y <= max_y; y++)
+    {
+        for (int x = min_x; x <= max_x; x++)
+        {
+            float bary0 = edge_func(cmd->x1, cmd->y1, cmd->x2, cmd->y2, x, y);
+            float bary1 = edge_func(cmd->x2, cmd->y2, cmd->x0, cmd->y0, x, y);
+            float bary2 = edge_func(cmd->x0, cmd->y0, cmd->x1, cmd->y1, x, y);
+
+            if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) ||
+                (bary0 <= 0 && bary1 <= 0 && bary2 <= 0))
+            {
+                bary0 /= area;
+                bary1 /= area;
+                bary2 /= area;
+
+                float z = bary0 * cmd->z0 + bary1 * cmd->z1 + bary2 * cmd->z2;
+                int idx = y * RENDER_WIDTH + x;
+                if (z >= g_zbuffer[idx])
+                    continue;
+
+                float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
+                float w = 1.0f / interp_inv_w;
+                uint32_t final_color = apply_fog(cmd->color, w);
+
+                g_zbuffer[idx] = z;
+                g_framebuffer[idx] = final_color;
+            }
+        }
+    }
+}
+
+static void tile_fill_textured(const RenderCmd *cmd,
+                               int tx, int ty, int tw, int th)
+{
+    int min_x = min3(cmd->x0, cmd->x1, cmd->x2);
+    int max_x = max3(cmd->x0, cmd->x1, cmd->x2);
+    int min_y = min3(cmd->y0, cmd->y1, cmd->y2);
+    int max_y = max3(cmd->y0, cmd->y1, cmd->y2);
+
+    if (min_x < tx)
+        min_x = tx;
+    if (min_y < ty)
+        min_y = ty;
+    if (max_x > tx + tw - 1)
+        max_x = tx + tw - 1;
+    if (max_y > ty + th - 1)
+        max_y = ty + th - 1;
+
+    if (min_x > max_x || min_y > max_y)
+        return;
+
+    float area = edge_func(cmd->x0, cmd->y0, cmd->x1, cmd->y1, cmd->x2, cmd->y2);
+    if (area == 0)
+        return;
+
+    float inv_w0 = 1.0f / cmd->w0;
+    float inv_w1 = 1.0f / cmd->w1;
+    float inv_w2 = 1.0f / cmd->w2;
+
+    float u0_over_w = cmd->u0 * inv_w0;
+    float v0_over_w = cmd->v0 * inv_w0;
+    float u1_over_w = cmd->u1 * inv_w1;
+    float v1_over_w = cmd->v1 * inv_w1;
+    float u2_over_w = cmd->u2 * inv_w2;
+    float v2_over_w = cmd->v2 * inv_w2;
+
+    for (int y = min_y; y <= max_y; y++)
+    {
+        for (int x = min_x; x <= max_x; x++)
+        {
+            float bary0 = edge_func(cmd->x1, cmd->y1, cmd->x2, cmd->y2, x, y);
+            float bary1 = edge_func(cmd->x2, cmd->y2, cmd->x0, cmd->y0, x, y);
+            float bary2 = edge_func(cmd->x0, cmd->y0, cmd->x1, cmd->y1, x, y);
+
+            if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) ||
+                (bary0 <= 0 && bary1 <= 0 && bary2 <= 0))
+            {
+                bary0 /= area;
+                bary1 /= area;
+                bary2 /= area;
+
+                float z = bary0 * cmd->z0 + bary1 * cmd->z1 + bary2 * cmd->z2;
+                int idx = y * RENDER_WIDTH + x;
+                if (z >= g_zbuffer[idx])
+                    continue;
+
+                float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
+                float interp_u_over_w = bary0 * u0_over_w + bary1 * u1_over_w + bary2 * u2_over_w;
+                float interp_v_over_w = bary0 * v0_over_w + bary1 * v1_over_w + bary2 * v2_over_w;
+                float u = interp_u_over_w / interp_inv_w;
+                float v = interp_v_over_w / interp_inv_w;
+
+                uint32_t tex_color = texture_sample(cmd->tex, u, v);
+                uint8_t r = (uint8_t)(((tex_color >> 16) & 0xFF) * cmd->light);
+                uint8_t g = (uint8_t)(((tex_color >> 8) & 0xFF) * cmd->light);
+                uint8_t b = (uint8_t)((tex_color & 0xFF) * cmd->light);
+                uint32_t lit_color = 0xFF000000 | (r << 16) | (g << 8) | b;
+
+                float w = 1.0f / interp_inv_w;
+                uint32_t final_color = apply_fog(lit_color, w);
+
+                g_zbuffer[idx] = z;
+                g_framebuffer[idx] = final_color;
+            }
+        }
+    }
+}
+
+static void tile_rasterize(int tile_x, int tile_y, int tile_w, int tile_h,
+                           void *userdata)
+{
+    (void)userdata;
+    for (int i = 0; i < g_cmd_count; i++)
+    {
+        const RenderCmd *cmd = &g_cmd_buffer[i];
+        if (cmd->textured)
+            tile_fill_textured(cmd, tile_x, tile_y, tile_w, tile_h);
+        else
+            tile_fill_z(cmd, tile_x, tile_y, tile_w, tile_h);
+    }
+}
+
+void render_set_threaded(bool enabled)
+{
+    g_threaded = enabled;
+    LOG_INFO("Threaded rasterizer: %s", enabled ? "ON" : "OFF");
+}
+
+bool render_get_threaded(void)
+{
+    return g_threaded;
+}
+
+void render_begin_commands(void)
+{
+    g_cmd_count = 0;
+}
+
+void render_flush_commands(void)
+{
+    if (g_cmd_count == 0)
+        return;
+
+    int tiles_x = (RENDER_WIDTH + TILE_SIZE - 1) / TILE_SIZE;
+    int tiles_y = (RENDER_HEIGHT + TILE_SIZE - 1) / TILE_SIZE;
+
+    threadpool_dispatch(tiles_x, tiles_y, TILE_SIZE,
+                        RENDER_WIDTH, RENDER_HEIGHT,
+                        tile_rasterize, NULL);
+}
+
+int render_get_cmd_count(void)
+{
+    return g_cmd_count;
+}
+
+static const uint32_t s_tile_colors[] = {
+    0x40FF0000,
+    0x4000FF00,
+    0x400000FF,
+    0x40FFFF00,
+    0x40FF00FF,
+    0x4000FFFF,
+    0x40FF8000,
+    0x4080FF00,
+    0x408000FF,
+    0x40FF0080,
+    0x4000FF80,
+    0x400080FF,
+    0x40FF4040,
+    0x4040FF40,
+    0x404040FF,
+    0x40FFAA00,
+};
+
+static uint32_t blend_tile_color(uint32_t base, uint32_t overlay)
+{
+    uint8_t oa = (overlay >> 24) & 0xFF;
+    float a = oa / 255.0f;
+    float ia = 1.0f - a;
+
+    uint8_t br = (base >> 16) & 0xFF;
+    uint8_t bg = (base >> 8) & 0xFF;
+    uint8_t bb = base & 0xFF;
+
+    uint8_t or_ = (overlay >> 16) & 0xFF;
+    uint8_t og = (overlay >> 8) & 0xFF;
+    uint8_t ob = overlay & 0xFF;
+
+    uint8_t fr = (uint8_t)(br * ia + or_ * a);
+    uint8_t fg = (uint8_t)(bg * ia + og * a);
+    uint8_t fb = (uint8_t)(bb * ia + ob * a);
+
+    return 0xFF000000 | (fr << 16) | (fg << 8) | fb;
+}
+
+void render_draw_tile_debug(void)
+{
+    int tiles_x = threadpool_get_tiles_x();
+    int tiles_y = threadpool_get_tiles_y();
+    const int *owners = threadpool_get_tile_owners();
+    int num_colors = (int)(sizeof(s_tile_colors) / sizeof(s_tile_colors[0]));
+
+    if (tiles_x <= 0 || tiles_y <= 0)
+        return;
+
+    for (int ty = 0; ty < tiles_y; ty++)
+    {
+        for (int tx = 0; tx < tiles_x; tx++)
+        {
+            int tile_idx = ty * tiles_x + tx;
+            int owner = (tile_idx < 1024) ? owners[tile_idx] : 0;
+            uint32_t tint = s_tile_colors[owner % num_colors];
+
+            int px = tx * TILE_SIZE;
+            int py = ty * TILE_SIZE;
+            int pw = TILE_SIZE;
+            int ph = TILE_SIZE;
+            if (px + pw > RENDER_WIDTH)
+                pw = RENDER_WIDTH - px;
+            if (py + ph > RENDER_HEIGHT)
+                ph = RENDER_HEIGHT - py;
+
+            for (int y = py; y < py + ph; y++)
+            {
+                for (int x = px; x < px + pw; x++)
+                {
+                    int idx = y * RENDER_WIDTH + x;
+                    g_framebuffer[idx] = blend_tile_color(g_framebuffer[idx], tint);
+                }
+            }
+
+            uint32_t grid_color = 0xFFFFFFFF;
+            for (int x = px; x < px + pw; x++)
+            {
+                if (py >= 0 && py < RENDER_HEIGHT)
+                    g_framebuffer[py * RENDER_WIDTH + x] = grid_color;
+            }
+            for (int y = py; y < py + ph; y++)
+            {
+                if (px >= 0 && px < RENDER_WIDTH)
+                    g_framebuffer[y * RENDER_WIDTH + px] = grid_color;
+            }
+        }
+    }
 }

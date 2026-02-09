@@ -1,6 +1,7 @@
 #include "core/console.h"
 #include "core/level.h"
 #include "core/log.h"
+#include "core/threads.h"
 #include "graphics/render.h"
 #include <SDL2/SDL.h>
 
@@ -214,11 +215,14 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, " skybox <top> <bot> - skybox colors");
         console_log(con, " vsync <0/1>        - vsync");
         console_log(con, " simd <0/1>         - (experimental)");
+        console_log(con, " threads <0/1>      - multithreading");
+        console_log(con, " threads_count <N>  - set thread count");
         console_log(con, " toggle wireframe   - wireframe");
         console_log(con, " toggle backface    - backface cull");
         console_log(con, " toggle aabb        - bounding box");
         console_log(con, " toggle rays        - ray debug vis");
         console_log(con, " toggle debug       - toggle HUD");
+        console_log(con, " toggle tiles       - tile debug vis");
         console_log(con, " load <file>        - load level/map");
         console_log(con, " save_level <file>  - save (.lvl)");
         console_log(con, " resume             - back to game");
@@ -315,6 +319,13 @@ void console_execute(Console *con, CommandContext *ctx)
     {
         con->show_debug = !con->show_debug;
         console_log(con, "Debug info: %s", con->show_debug ? "ON" : "OFF");
+    }
+    // --- toggle tiles ---
+    else if (strcmp(tokens[0], "toggle") == 0 && ntokens >= 2 &&
+             strcmp(tokens[1], "tiles") == 0)
+    {
+        con->debug_tiles = !con->debug_tiles;
+        console_log(con, "Tile debug: %s", con->debug_tiles ? "ON" : "OFF");
     }
     // --- deselect ---
     else if (strcmp(tokens[0], "deselect") == 0)
@@ -453,7 +464,8 @@ void console_execute(Console *con, CommandContext *ctx)
     else if (strcmp(tokens[0], "fly_speed") == 0 && ntokens >= 2)
     {
         float spd = (float)atof(tokens[1]);
-        if (spd < 0.1f) spd = 0.1f;
+        if (spd < 0.1f)
+            spd = 0.1f;
         ctx->camera->fly_speed = spd;
         console_log(con, "Fly speed set to %.2f", spd);
     }
@@ -461,7 +473,9 @@ void console_execute(Console *con, CommandContext *ctx)
     else if (strcmp(tokens[0], "fog") == 0 && ntokens >= 2)
     {
         bool en = atoi(tokens[1]) != 0;
-        bool curr_en; float start, end; uint32_t color;
+        bool curr_en;
+        float start, end;
+        uint32_t color;
         render_get_fog(&curr_en, &start, &end, &color);
         render_set_fog(en, start, end, color);
         console_log(con, "Fog: %s", en ? "ON" : "OFF");
@@ -471,7 +485,9 @@ void console_execute(Console *con, CommandContext *ctx)
     {
         float start = (float)atof(tokens[1]);
         float end = (float)atof(tokens[2]);
-        bool curr_en; float curr_start, curr_end; uint32_t color;
+        bool curr_en;
+        float curr_start, curr_end;
+        uint32_t color;
         render_get_fog(&curr_en, &curr_start, &curr_end, &color);
         render_set_fog(curr_en, start, end, color);
         console_log(con, "Fog dist: %.1f - %.1f", start, end);
@@ -481,9 +497,12 @@ void console_execute(Console *con, CommandContext *ctx)
     {
         uint32_t color = (uint32_t)strtoul(tokens[1], NULL, 16);
         // Ensure alpha is fully opaque if user didn't provide it
-        if ((color & 0xFF000000) == 0) color |= 0xFF000000;
-        
-        bool curr_en; float start, end; uint32_t curr_color;
+        if ((color & 0xFF000000) == 0)
+            color |= 0xFF000000;
+
+        bool curr_en;
+        float start, end;
+        uint32_t curr_color;
         render_get_fog(&curr_en, &start, &end, &curr_color);
         render_set_fog(curr_en, start, end, color);
         console_log(con, "Fog color: %08X", color);
@@ -493,9 +512,11 @@ void console_execute(Console *con, CommandContext *ctx)
     {
         uint32_t top = (uint32_t)strtoul(tokens[1], NULL, 16);
         uint32_t bottom = (uint32_t)strtoul(tokens[2], NULL, 16);
-        if ((top & 0xFF000000) == 0) top |= 0xFF000000;
-        if ((bottom & 0xFF000000) == 0) bottom |= 0xFF000000;
-        
+        if ((top & 0xFF000000) == 0)
+            top |= 0xFF000000;
+        if ((bottom & 0xFF000000) == 0)
+            bottom |= 0xFF000000;
+
         render_set_skybox(top, bottom);
         console_log(con, "Skybox set");
     }
@@ -526,6 +547,25 @@ void console_execute(Console *con, CommandContext *ctx)
         render_set_simd(enable);
         console_log(con, "SIMD: %s", enable ? "ON" : "OFF");
     }
+    // --- threads <0/1> ---
+    else if (strcmp(tokens[0], "threads") == 0 && ntokens >= 2)
+    {
+        bool enable = atoi(tokens[1]) != 0;
+        render_set_threaded(enable);
+        console_log(con, "Threaded rasterizer: %s (%d workers)",
+                    enable ? "ON" : "OFF", threadpool_get_count());
+    }
+    // -- threads_count <N> ---
+    else if (strcmp(tokens[0], "threads_count") == 0 && ntokens >= 2)
+    {
+        int count = atoi(tokens[1]);
+        if (count < 1)
+            count = 1;
+        threadpool_shutdown();
+        threadpool_init(count);
+        console_log(con, "Thread pool resized: %d workers", count);
+    }
+    // --- unknown command ---
     else
     {
         console_log(con, "Unknown command: %s", tokens[0]);

@@ -18,6 +18,7 @@
 #include "core/level.h"
 #include "core/collision_grid.h"
 #include "core/chunk.h"
+#include "core/threads.h"
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
@@ -35,8 +36,6 @@
 
 static uint32_t framebuffer[RENDER_WIDTH * RENDER_HEIGHT];
 static float zbuffer[RENDER_WIDTH * RENDER_HEIGHT];
-
-
 
 int main(int argc, char *argv[])
 {
@@ -93,7 +92,14 @@ int main(int argc, char *argv[])
 
     render_set_framebuffer(framebuffer);
     render_set_zbuffer(zbuffer);
-    
+
+    int num_cores = SDL_GetCPUCount();
+    if (num_cores < 1)
+        num_cores = 4;
+    if (num_cores > MAX_WORKER_THREADS)
+        num_cores = MAX_WORKER_THREADS;
+    threadpool_init(num_cores);
+
     float fog_start = 50.0f;
     float fog_end = 500.0f;
     uint32_t fog_color = 0xFF808080;
@@ -117,7 +123,6 @@ int main(int argc, char *argv[])
         scene.entities[idx].pickable = false;
     }
 
-    // Corner cubes (shared base mesh, positioned via entity transform)
     Mesh cube_mesh = mesh_cube();
     cube_mesh.bounds = aabb_from_vertices(cube_mesh.vertices, cube_mesh.vertex_count);
 
@@ -168,7 +173,6 @@ int main(int argc, char *argv[])
 
     LOG_INFO("Scene populated: %d entities", scene.count);
 
-    // Camera & Colliders
     float aspect = (float)RENDER_WIDTH / (float)RENDER_HEIGHT;
     Mat4 proj = mat4_perspective(PI / 3.0f, aspect, 0.1f, 10000.0f);
 
@@ -219,6 +223,7 @@ int main(int argc, char *argv[])
 
     bool debug_aabb = false;
     bool vsync_enabled = true;
+    bool threaded_enabled = false;
 
     CommandContext cmd_ctx;
     cmd_ctx.scene = &scene;
@@ -599,6 +604,9 @@ int main(int argc, char *argv[])
         render_clear_gradient();
         render_clear_zbuffer();
 
+        if (render_get_threaded() && threadpool_is_active())
+            render_begin_commands();
+
         // Render chunked map geometry first (frustum-culled per chunk)
         if (chunk_grid.count > 0)
         {
@@ -623,6 +631,13 @@ int main(int argc, char *argv[])
             scene_render(&scene, vp, camera.position, light_dir,
                          frustum_culling ? &frustum : NULL, console.backface_cull,
                          &render_stats);
+
+        if (render_get_threaded() && threadpool_is_active())
+        {
+            render_flush_commands();
+            if (console.debug_tiles)
+                render_draw_tile_debug();
+        }
 
         if (debug_aabb)
         {
@@ -701,7 +716,7 @@ int main(int argc, char *argv[])
 
             bool fog_enabled;
             render_get_fog(&fog_enabled, &fog_start, &fog_end, &fog_color);
-            
+
             MenuData menu_data;
             menu_data.backface_cull = &console.backface_cull;
             menu_data.frustum_cull = &frustum_culling;
@@ -710,10 +725,12 @@ int main(int argc, char *argv[])
             menu_data.draw_aabb = &debug_aabb;
             menu_data.fog_end = &fog_end;
             menu_data.vsync = &vsync_enabled;
+            menu_data.threaded = &threaded_enabled;
 
             bool old_vsync = vsync_enabled;
+            bool old_threaded = threaded_enabled;
             int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, mouse_down, &menu_state, &menu_data);
-            
+
             if (old_vsync != vsync_enabled)
             {
                 if (SDL_RenderSetVSync(renderer, vsync_enabled) != 0)
@@ -725,9 +742,14 @@ int main(int argc, char *argv[])
                     LOG_INFO("VSync set to %s", vsync_enabled ? "ON" : "OFF");
                 }
             }
-            
+
+            if (old_threaded != threaded_enabled)
+            {
+                render_set_threaded(threaded_enabled);
+            }
+
             render_set_fog(fog_enabled, fog_start, fog_end, fog_color);
-            
+
             if (action == 1) // Resume
             {
                 game_state = GAME_STATE_PLAYING;
@@ -759,6 +781,7 @@ int main(int argc, char *argv[])
 
     LOG_INFO("Shutting down...");
 
+    threadpool_shutdown();
     chunk_grid_free(&chunk_grid);
     grid_free(&collision_grid);
     obj_mesh_free(&teapot);

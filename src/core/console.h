@@ -34,6 +34,7 @@ typedef struct
     bool debug_rays;
     bool backface_cull;
     bool show_debug;
+    bool debug_tiles;
 } Console;
 
 void console_init(Console *con);

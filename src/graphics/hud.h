@@ -43,6 +43,7 @@ typedef struct
     bool *draw_aabb;
     float *fog_end;
     bool *vsync;
+    bool *threaded;
 } MenuData;
 
 int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, MenuState *state, MenuData *data);
