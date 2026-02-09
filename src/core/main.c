@@ -218,6 +218,7 @@ int main(int argc, char *argv[])
     static char current_map_path[256] = {0};
 
     bool debug_aabb = false;
+    bool vsync_enabled = true;
 
     CommandContext cmd_ctx;
     cmd_ctx.scene = &scene;
@@ -233,6 +234,7 @@ int main(int argc, char *argv[])
     cmd_ctx.state = &game_state;
     cmd_ctx.selected_entity = &selected_entity;
     cmd_ctx.debug_aabb = &debug_aabb;
+    cmd_ctx.renderer = renderer;
 
     Uint32 prev_time = SDL_GetTicks();
 
@@ -707,17 +709,30 @@ int main(int argc, char *argv[])
             menu_data.debug_info = &console.show_debug;
             menu_data.draw_aabb = &debug_aabb;
             menu_data.fog_end = &fog_end;
+            menu_data.vsync = &vsync_enabled;
 
+            bool old_vsync = vsync_enabled;
             int action = hud_draw_pause_menu(&hud_font, rmx, rmy, menu_clicked, mouse_down, &menu_state, &menu_data);
             
-            // Apply fog changes
+            if (old_vsync != vsync_enabled)
+            {
+                if (SDL_RenderSetVSync(renderer, vsync_enabled) != 0)
+                {
+                    LOG_ERROR("Failed to set VSync: %s", SDL_GetError());
+                }
+                else
+                {
+                    LOG_INFO("VSync set to %s", vsync_enabled ? "ON" : "OFF");
+                }
+            }
+            
             render_set_fog(fog_enabled, fog_start, fog_end, fog_color);
             
             if (action == 1) // Resume
             {
                 game_state = GAME_STATE_PLAYING;
                 SDL_SetRelativeMouseMode(SDL_TRUE);
-                menu_state = MENU_MAIN; // Reset menu
+                menu_state = MENU_MAIN;
                 LOG_INFO("Resumed");
             }
             else if (action == 2) // Console

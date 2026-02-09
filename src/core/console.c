@@ -2,6 +2,7 @@
 #include "core/level.h"
 #include "core/log.h"
 #include "graphics/render.h"
+#include <SDL2/SDL.h>
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -173,7 +174,7 @@ void console_execute(Console *con, CommandContext *ctx)
     strncpy(cmd, con->input, CONSOLE_INPUT_MAX);
     cmd[CONSOLE_INPUT_MAX - 1] = '\0';
 
-    // Echo command to log (truncate gracefully)
+    // Echo command to log
     char echo[CONSOLE_LOG_LINE_LEN];
     snprintf(echo, sizeof(echo), "> %.60s", cmd);
     console_log(con, "%s", echo);
@@ -207,6 +208,12 @@ void console_execute(Console *con, CommandContext *ctx)
         console_log(con, " fly                - toggle fly");
         console_log(con, " fly_speed <N>      - fly speed");
         console_log(con, " set speed <N>      - game speed");
+        console_log(con, " fog <0|1>          - toggle fog");
+        console_log(con, " fog_dist <st> <en> - fog distance");
+        console_log(con, " fog_color <hex>    - fog color");
+        console_log(con, " skybox <top> <bot> - skybox colors");
+        console_log(con, " vsync <0/1>        - vsync");
+        console_log(con, " simd <0/1>         - (experimental)");
         console_log(con, " toggle wireframe   - wireframe");
         console_log(con, " toggle backface    - backface cull");
         console_log(con, " toggle aabb        - bounding box");
@@ -234,7 +241,7 @@ void console_execute(Console *con, CommandContext *ctx)
         // Spawn at camera position + 5 units forward, at camera height
         Vec3 spawn_pos = vec3_add(ctx->camera->position,
                                   vec3_mul(ctx->camera->direction, 5.0f));
-        spawn_pos.y -= 1.0f; // Slightly below eye level
+        spawn_pos.y -= 1.0f;
 
         int idx = scene_add_obj(ctx->scene, ctx->teapot, spawn_pos, 0.4f);
         if (idx >= 0)
@@ -322,7 +329,6 @@ void console_execute(Console *con, CommandContext *ctx)
         char *ext = strrchr(tokens[1], '.');
         if (ext && strcmp(ext, ".lvl") == 0)
         {
-            // Call load_level logic
             if (level_load(tokens[1], ctx->scene, ctx->camera,
                            ctx->teapot, ctx->cube_mesh,
                            ctx->loaded_map, ctx->collision_grid,
@@ -334,7 +340,6 @@ void console_execute(Console *con, CommandContext *ctx)
         }
         else if (ext && strcmp(ext, ".obj") == 0)
         {
-            // Call load_map logic
             if (level_load_map(tokens[1], ctx->scene, ctx->camera,
                                ctx->loaded_map, ctx->collision_grid,
                                ctx->chunk_grid) == 0)
@@ -493,6 +498,33 @@ void console_execute(Console *con, CommandContext *ctx)
         
         render_set_skybox(top, bottom);
         console_log(con, "Skybox set");
+    }
+    // --- vsync <0/1> ---
+    else if (strcmp(tokens[0], "vsync") == 0 && ntokens >= 2)
+    {
+        int enable = atoi(tokens[1]);
+        if (ctx->renderer)
+        {
+            if (SDL_RenderSetVSync(ctx->renderer, enable) == 0)
+            {
+                console_log(con, "VSync set to %s", enable ? "ON" : "OFF");
+            }
+            else
+            {
+                console_log(con, "VSync error: %s", SDL_GetError());
+            }
+        }
+        else
+        {
+            console_log(con, "Renderer not available");
+        }
+    }
+    // --- simd <0/1> ---
+    else if (strcmp(tokens[0], "simd") == 0 && ntokens >= 2)
+    {
+        bool enable = atoi(tokens[1]) != 0;
+        render_set_simd(enable);
+        console_log(con, "SIMD: %s", enable ? "ON" : "OFF");
     }
     else
     {

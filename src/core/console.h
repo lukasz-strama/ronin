@@ -44,7 +44,6 @@ void console_log(Console *con, const char *fmt, ...);
 void console_scroll(Console *con, int delta);
 void console_draw(const Console *con, const Font *font);
 
-// Command execution (needs access to scene + camera for mutation)
 typedef struct
 {
     Scene *scene;
@@ -60,6 +59,7 @@ typedef struct
     GameState *state;
     int *selected_entity;
     bool *debug_aabb;
+    struct SDL_Renderer *renderer;
 } CommandContext;
 
 void console_execute(Console *con, CommandContext *ctx);

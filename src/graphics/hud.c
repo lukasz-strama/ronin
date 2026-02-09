@@ -402,7 +402,7 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
         hud_draw_text(font, cx - (8 * FONT_GLYPH_W) / 2, cy - 60, "SETTINGS", 0xFFFFFFFF);
         int start_y = cy - 20;
 
-        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "GAMEPLAY", mx, my, clicked)) *state = MENU_SETTINGS_GAMEPLAY;
+        if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "VIDEO", mx, my, clicked)) *state = MENU_SETTINGS_VIDEO;
         start_y += btn_h + spacing;
 
         if (hud_button(font, cx - btn_w / 2, start_y, btn_w, btn_h, "GRAPHICS", mx, my, clicked)) *state = MENU_SETTINGS_GRAPHICS;
@@ -433,8 +433,7 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
 
         if (data->fog_end)
         {
-            start_y += 10; // Extra spacing BEFORE slider to clear previous checkbox
-            // Center the slider: cx - check_w / 2
+            start_y += 10;
             int slider_x = cx - check_w / 2;
             hud_slider(font, slider_x, start_y, check_w, check_h, "Fog Distance", data->fog_end, 50.0f, 1000.0f, mx, my, mouse_down);
             start_y += check_h + spacing + 10;
@@ -442,11 +441,21 @@ int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mou
 
         if (hud_button(font, cx - btn_w / 2, start_y + 10, btn_w, btn_h, "BACK", mx, my, clicked)) *state = MENU_SETTINGS;
     }
-    else if (*state == MENU_SETTINGS_GAMEPLAY)
+    else if (*state == MENU_SETTINGS_VIDEO)
     {
-        hud_draw_text(font, cx - (8 * FONT_GLYPH_W) / 2, cy - 60, "GAMEPLAY", 0xFFFFFFFF);
-        int start_y = cy;
-        hud_draw_text(font, cx - 40, start_y, "(Empty)", 0xFFAAAAAA);
+        hud_draw_text(font, cx - (5 * FONT_GLYPH_W) / 2, cy - 60, "VIDEO", 0xFFFFFFFF);
+        int start_y = cy - 20;
+        
+        int check_h = 16;
+        int check_w = 200;
+        int ox = cx - 60;
+
+        if (data->vsync)
+        {
+            hud_checkbox(font, ox, start_y, check_w, check_h, "VSync", data->vsync, mx, my, clicked);
+            start_y += check_h + spacing;
+        }
+
         if (hud_button(font, cx - btn_w / 2, start_y + 30, btn_w, btn_h, "BACK", mx, my, clicked)) *state = MENU_SETTINGS;
     }
     else if (*state == MENU_SETTINGS_AUDIO)

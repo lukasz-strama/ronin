@@ -151,7 +151,6 @@ static void swap_int(int *a, int *b)
     *b = tmp;
 }
 
-// Horizontal scanline
 static void draw_scanline(int y, int x_start, int x_end, uint32_t color)
 {
     if (x_start > x_end)
@@ -164,7 +163,6 @@ static void draw_scanline(int y, int x_start, int x_end, uint32_t color)
     }
 }
 
-// Flat-bottom triangle: v0 at top, v1 and v2 at bottom (same y)
 static void fill_flat_bottom(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
 {
     float inv_slope1 = (float)(x1 - x0) / (float)(y1 - y0);
@@ -257,19 +255,16 @@ static int max3(int a, int b, int c)
     return m;
 }
 
-// Edge function for barycentric coordinates
 static float edge_func(int ax, int ay, int bx, int by, int px, int py)
 {
     return (float)((px - ax) * (by - ay) - (py - ay) * (bx - ax));
 }
 
-// Apply fog to a color based on depth w
 static uint32_t apply_fog(uint32_t color, float w)
 {
     if (!g_fog_enabled)
         return color;
 
-    // Linear fog factor
     float factor = (w - g_fog_start) / (g_fog_end - g_fog_start);
     return blend_colors(color, g_fog_color, factor);
 }
@@ -300,11 +295,6 @@ void render_fill_triangle_z(
     if (area == 0)
         return;
 
-    // Pre-compute 1/w for perspective correct W interpolation
-    // Note: To interpolate 'w' linearly in screen space, we actually
-    // interpolate 1/w and then invert it back.
-    // Wait, w is linear in view space, but non-linear in screen space.
-    // The standard perspective correction is: interpolate 1/w.
     float inv_w0 = 1.0f / w0;
     float inv_w1 = 1.0f / w1;
     float inv_w2 = 1.0f / w2;
@@ -324,7 +314,7 @@ void render_fill_triangle_z(
                 bary1 /= area;
                 bary2 /= area;
 
-                // Early Z-rejection: compute depth first, skip pixel if occluded
+                // Early Z-rejection
                 float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
                 int idx = y * RENDER_WIDTH + x;
                 if (z >= g_zbuffer[idx])
@@ -342,7 +332,11 @@ void render_fill_triangle_z(
     }
 }
 
-void render_fill_triangle_textured(
+// --- SIMD Implementation ---
+#ifdef USE_SIMD
+#include <immintrin.h>
+
+static void render_fill_triangle_simd(
     int x0, int y0, float z0, float u0, float v0, float w0_clip,
     int x1, int y1, float z1, float u1, float v1, float w1_clip,
     int x2, int y2, float z2, float u2, float v2, float w2_clip,
@@ -350,6 +344,213 @@ void render_fill_triangle_textured(
 {
     int min_x = min3(x0, x1, x2);
     int max_x = max3(x0, x1, x2);
+    int min_y = min3(y0, y1, y2);
+    int max_y = max3(y0, y1, y2);
+
+    if (min_x < 0) min_x = 0;
+    if (min_y < 0) min_y = 0;
+    if (max_x >= RENDER_WIDTH) max_x = RENDER_WIDTH - 1;
+    if (max_y >= RENDER_HEIGHT) max_y = RENDER_HEIGHT - 1;
+
+    float area = edge_func(x0, y0, x1, y1, x2, y2);
+    if (area == 0) return;
+    float inv_area = 1.0f / area;
+
+    float inv_w0 = 1.0f / w0_clip;
+    float inv_w1 = 1.0f / w1_clip;
+    float inv_w2 = 1.0f / w2_clip;
+
+    float u0_over_w = u0 * inv_w0;
+    float v0_over_w = v0 * inv_w0;
+    float u1_over_w = u1 * inv_w1;
+    float v1_over_w = v1 * inv_w1;
+    float u2_over_w = u2 * inv_w2;
+    float v2_over_w = v2 * inv_w2;
+
+    __m128 v_inv_area = _mm_set1_ps(inv_area);
+
+    __m128 v_z0 = _mm_set1_ps(z0);
+    __m128 v_z1 = _mm_set1_ps(z1);
+    __m128 v_z2 = _mm_set1_ps(z2);
+
+    __m128 v_u0w = _mm_set1_ps(u0_over_w);
+    __m128 v_u1w = _mm_set1_ps(u1_over_w);
+    __m128 v_u2w = _mm_set1_ps(u2_over_w);
+
+    __m128 v_v0w = _mm_set1_ps(v0_over_w);
+    __m128 v_v1w = _mm_set1_ps(v1_over_w);
+    __m128 v_v2w = _mm_set1_ps(v2_over_w);
+
+    __m128 v_inv_w0 = _mm_set1_ps(inv_w0);
+    __m128 v_inv_w1 = _mm_set1_ps(inv_w1);
+    __m128 v_inv_w2 = _mm_set1_ps(inv_w2);
+
+    __m128 v_zeros = _mm_setzero_ps();
+    __m128 v_inc_x = _mm_set_ps(3.0f, 2.0f, 1.0f, 0.0f);
+
+    for (int y = min_y; y <= max_y; y++)
+    {
+        float row_bary0 = edge_func(x1, y1, x2, y2, min_x, y);
+        float row_bary1 = edge_func(x2, y2, x0, y0, min_x, y);
+        float row_bary2 = edge_func(x0, y0, x1, y1, min_x, y);
+
+        int x = min_x;
+        for (; x <= max_x - 3; x += 4)
+        {
+            __m128 v_bary0 = _mm_add_ps(_mm_set1_ps(row_bary0), _mm_mul_ps(v_inc_x, _mm_set1_ps(y2 - y1)));
+            __m128 v_bary1 = _mm_add_ps(_mm_set1_ps(row_bary1), _mm_mul_ps(v_inc_x, _mm_set1_ps(y0 - y2)));
+            __m128 v_bary2 = _mm_add_ps(_mm_set1_ps(row_bary2), _mm_mul_ps(v_inc_x, _mm_set1_ps(y1 - y0)));
+
+            row_bary0 += 4.0f * (y2 - y1);
+            row_bary1 += 4.0f * (y0 - y2);
+            row_bary2 += 4.0f * (y1 - y0);
+
+            __m128 mask0 = _mm_cmpge_ps(v_bary0, v_zeros);
+            __m128 mask1 = _mm_cmpge_ps(v_bary1, v_zeros);
+            __m128 mask2 = _mm_cmpge_ps(v_bary2, v_zeros);
+            
+            __m128 mask_pos = _mm_and_ps(_mm_and_ps(mask0, mask1), mask2);
+            
+            __m128 mask0_neg = _mm_cmple_ps(v_bary0, v_zeros);
+            __m128 mask1_neg = _mm_cmple_ps(v_bary1, v_zeros);
+            __m128 mask2_neg = _mm_cmple_ps(v_bary2, v_zeros);
+            __m128 mask_neg = _mm_and_ps(_mm_and_ps(mask0_neg, mask1_neg), mask2_neg);
+            
+            __m128 mask = _mm_or_ps(mask_pos, mask_neg);
+
+            int mask_bits = _mm_movemask_ps(mask);
+            if (mask_bits == 0) continue;
+
+            v_bary0 = _mm_mul_ps(v_bary0, v_inv_area);
+            v_bary1 = _mm_mul_ps(v_bary1, v_inv_area);
+            v_bary2 = _mm_mul_ps(v_bary2, v_inv_area);
+
+            // Z = b0*z0 + b1*z1 + b2*z2
+            __m128 v_z = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(v_bary0, v_z0), _mm_mul_ps(v_bary1, v_z1)),
+                _mm_mul_ps(v_bary2, v_z2)
+            );
+
+            int idx = y * RENDER_WIDTH + x;
+            __m128 v_zbuf = _mm_loadu_ps(&g_zbuffer[idx]);
+            __m128 z_mask = _mm_cmplt_ps(v_z, v_zbuf);
+            
+            mask = _mm_and_ps(mask, z_mask);
+            mask_bits = _mm_movemask_ps(mask);
+            if (mask_bits == 0) continue;
+
+            __m128 v_interp_inv_w = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(v_bary0, v_inv_w0), _mm_mul_ps(v_bary1, v_inv_w1)),
+                _mm_mul_ps(v_bary2, v_inv_w2)
+            );
+            
+            __m128 v_interp_u = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(v_bary0, v_u0w), _mm_mul_ps(v_bary1, v_u1w)),
+                _mm_mul_ps(v_bary2, v_u2w)
+            );
+            
+            __m128 v_interp_v = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(v_bary0, v_v0w), _mm_mul_ps(v_bary1, v_v1w)),
+                _mm_mul_ps(v_bary2, v_v2w)
+            );
+            
+            __m128 v_u = _mm_div_ps(v_interp_u, v_interp_inv_w);
+            __m128 v_v = _mm_div_ps(v_interp_v, v_interp_inv_w);
+            __m128 v_w = _mm_rcp_ps(v_interp_inv_w);
+
+            float zs[4], us[4], vs[4], ws[4];
+            _mm_storeu_ps(zs, v_z);
+            _mm_storeu_ps(us, v_u);
+            _mm_storeu_ps(vs, v_v);
+            _mm_storeu_ps(ws, v_w);
+            
+            for (int i = 0; i < 4; i++)
+            {
+                if ((mask_bits >> i) & 1)
+                {
+                    uint32_t tex_color = texture_sample(tex, us[i], vs[i]);
+
+                    uint8_t r = (uint8_t)(((tex_color >> 16) & 0xFF) * light_intensity);
+                    uint8_t g = (uint8_t)(((tex_color >> 8) & 0xFF) * light_intensity);
+                    uint8_t b = (uint8_t)((tex_color & 0xFF) * light_intensity);
+
+                    uint32_t lit_color = 0xFF000000 | (r << 16) | (g << 8) | b;
+                    uint32_t final_color = apply_fog(lit_color, ws[i]);
+
+                    g_zbuffer[idx + i] = zs[i];
+                    g_framebuffer[idx + i] = final_color;
+                }
+            }
+        }
+        
+        for (; x <= max_x; x++)
+        {
+             float bary0 = edge_func(x1, y1, x2, y2, x, y);
+             float bary1 = edge_func(x2, y2, x0, y0, x, y);
+             float bary2 = edge_func(x0, y0, x1, y1, x, y);
+
+             if ((bary0 >= 0 && bary1 >= 0 && bary2 >= 0) ||
+                 (bary0 <= 0 && bary1 <= 0 && bary2 <= 0))
+             {
+                 bary0 /= area;
+                 bary1 /= area;
+                 bary2 /= area;
+
+                 float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
+                 int idx = y * RENDER_WIDTH + x;
+                 if (z >= g_zbuffer[idx]) continue;
+
+                 float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
+                 float interp_u_over_w = bary0 * u0_over_w + bary1 * u1_over_w + bary2 * u2_over_w;
+                 float interp_v_over_w = bary0 * v0_over_w + bary1 * v1_over_w + bary2 * v2_over_w;
+                 float u = interp_u_over_w / interp_inv_w;
+                 float v = interp_v_over_w / interp_inv_w;
+
+                 uint32_t tex_color = texture_sample(tex, u, v);
+                 uint8_t r = (uint8_t)(((tex_color >> 16) & 0xFF) * light_intensity);
+                 uint8_t g = (uint8_t)(((tex_color >> 8) & 0xFF) * light_intensity);
+                 uint8_t b = (uint8_t)((tex_color & 0xFF) * light_intensity);
+                 uint32_t lit_color = 0xFF000000 | (r << 16) | (g << 8) | b;
+                 float w = 1.0f / interp_inv_w;
+                 uint32_t final_color = apply_fog(lit_color, w);
+
+                 g_zbuffer[idx] = z;
+                 g_framebuffer[idx] = final_color;
+             }
+        }
+    }
+}
+#endif // USE_SIMD
+
+// SIMD Flag (run-time toggle)
+static bool g_simd_enabled = false; 
+
+void render_set_simd(bool enabled)
+{
+    g_simd_enabled = enabled;
+    LOG_INFO("SIMD Rasterizer: %s", enabled ? "ON" : "OFF");
+}
+
+void render_fill_triangle_textured(
+    int x0, int y0, float z0, float u0, float v0, float w0_clip,
+    int x1, int y1, float z1, float u1, float v1, float w1_clip,
+    int x2, int y2, float z2, float u2, float v2, float w2_clip,
+    const Texture *tex, float light_intensity)
+{
+#ifdef USE_SIMD
+    if (g_simd_enabled)
+    {
+        render_fill_triangle_simd(x0, y0, z0, u0, v0, w0_clip,
+                                  x1, y1, z1, u1, v1, w1_clip,
+                                  x2, y2, z2, u2, v2, w2_clip,
+                                  tex, light_intensity);
+        return;
+    }
+#endif
+
+    int min_x = min3(x0, x1, x2);
+    int max_x = max3(x0, x1, x2);
+
     int min_y = min3(y0, y1, y2);
     int max_y = max3(y0, y1, y2);
 
@@ -394,13 +595,12 @@ void render_fill_triangle_textured(
                 bary1 /= area;
                 bary2 /= area;
 
-                // Early Z-rejection: compute depth first, skip pixel if occluded
+                // Early Z-rejection
                 float z = bary0 * z0 + bary1 * z1 + bary2 * z2;
                 int idx = y * RENDER_WIDTH + x;
                 if (z >= g_zbuffer[idx])
                     continue;
 
-                // Pixel passed depth test — now do the expensive work
                 float interp_inv_w = bary0 * inv_w0 + bary1 * inv_w1 + bary2 * inv_w2;
                 float interp_u_over_w = bary0 * u0_over_w + bary1 * u1_over_w + bary2 * u2_over_w;
                 float interp_v_over_w = bary0 * v0_over_w + bary1 * v1_over_w + bary2 * v2_over_w;

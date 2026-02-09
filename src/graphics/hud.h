@@ -17,42 +17,34 @@ typedef struct
 
 struct RenderStats;
 
-// Font atlas
 int hud_font_init(Font *font);
 void hud_font_free(Font *font);
-
-// Sprite blitting (2D rect directly to framebuffer, bypasses 3D pipeline)
 void hud_blit_rect(int x, int y, int w, int h, uint32_t color);
-
-// Text rendering
 void hud_draw_char(const Font *font, int x, int y, char c, uint32_t color);
 void hud_draw_text(const Font *font, int x, int y, const char *text, uint32_t color);
-
-// UI elements
 void hud_draw_crosshair(uint32_t color);
 void hud_draw_fps(const Font *font, float dt);
-// Menu States
+
 typedef enum
 {
     MENU_MAIN = 0,
     MENU_SETTINGS,
     MENU_SETTINGS_GRAPHICS,
     MENU_SETTINGS_AUDIO,
-    MENU_SETTINGS_GAMEPLAY
+    MENU_SETTINGS_VIDEO,
 } MenuState;
 
 typedef struct
 {
-    // Graphics Settings
     bool *backface_cull;
     bool *frustum_cull;
     bool *wireframe;
     bool *debug_info;
     bool *draw_aabb;
     float *fog_end;
+    bool *vsync;
 } MenuData;
 
-// Returns: 0=None, 1=Resume, 2=Console, 3=Quit (Basic actions still valid for main menu handling)
 int hud_draw_pause_menu(const Font *font, int mx, int my, bool clicked, bool mouse_down, MenuState *state, MenuData *data);
 void hud_draw_cull_stats(const Font *font, const struct RenderStats *stats, int total_entities);
 

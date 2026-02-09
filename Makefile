@@ -2,7 +2,7 @@
 # C23 + SDL2
 
 CC      = gcc
-CFLAGS  = -std=c23 -Wall -Wextra -pedantic -g
+CFLAGS  = -std=c23 -Wall -Wextra -pedantic -g -march=native -DUSE_SIMD
 LDFLAGS = $(shell pkg-config --libs sdl2) -lm
 CFLAGS += $(shell pkg-config --cflags sdl2)
 CFLAGS += -I src
