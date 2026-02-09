@@ -2,9 +2,9 @@
 
 This software implements a complete 3D graphics pipeline from scratch, utilizing the C23 standard. No external graphics APIs (such as OpenGL or Vulkan) are employed; all rasterization, geometric transformations, and clipping operations are computed on the CPU. The SDL2 library is utilized exclusively for window instantiation, input polling, and the final presentation of the framebuffer.
 
-| Spawning Spinning Teapot | Ray Tracing Demonstration |
+| Spawning Spinning Teapot | Multithreading |
 |:------------------------:|:-------------------------:|
-| ![Teapot Demo (GIF)](docs/demo_teapot.gif) | ![Ray Trace Demo (GIF)](docs/demo_raytrace.gif) |
+| ![Teapot Demo (GIF)](docs/demo_teapot.gif) | ![Multithreading Demo (GIF)](docs/demo_multithred.gif) |
 
 *Note: Those demos are propably outdated right now. The engine is in active development and the codebase is subject to frequent changes. I can't be bothered to update them for now.*
 
@@ -20,6 +20,7 @@ This software implements a complete 3D graphics pipeline from scratch, utilizing
 *   **Texture Mapping**: Perspective-correct interpolation is applied to UV coordinates.
 *   **Clipping**: Geometry is clipped against the view frustum using the Sutherland-Hodgman algorithm.
 *   **Lighting**: Dynamic point lights and ambient illumination are calculated per-vertex (Gouraud shading).
+*   **Resolution Scaling**: Configurable internal rendering resolution independent of window size.
 
 ### Physics & Simulation
 *   **Camera System**: A six-degree-of-freedom FPS camera is implemented with Euler angle constraints.
@@ -36,6 +37,8 @@ This software implements a complete 3D graphics pipeline from scratch, utilizing
 *   **Spatial Partitioning**: A Grid/Bucket system is utilized to reduce the computational complexity of tracking physics interactions.
 *   **Chunking**: Large meshes are subdivided into chunks to maximize culling efficiency.
 *   **Chunk Sorting**: Maximize Early-Z Rejection by sorting chunks front-to-back.
+*   **SIMD Support**: Optional AVX/SSE vectorization for 4-wide parallel pixel processing (experimental, not fully implemented).
+*   **Multithreading**: Tile-based parallel rendering system utilizing a thread pool for multi-core scalability.
 
 ## Usage
 The compilation is handled via the provided `Makefile`.
